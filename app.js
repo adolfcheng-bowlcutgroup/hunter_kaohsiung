@@ -384,23 +384,16 @@ function getSortNote(sortMode, metric, dates) {
   return notes[sortMode] || notes.totalAmountDesc;
 }
 
-function getVisibleTrendProducts() {
+function renderTrendTable() {
   const allProducts = aggregateProducts();
   const dates = getDates();
+  if (!allProducts.length) return setEmpty('trendTable');
   const keyword = el('searchInput').value.trim().toLowerCase();
   const metric = el('metricSelect').value;
   const sortMode = el('sortSelect').value;
   const topN = Number(el('topNInput').value) || 10;
   const filtered = allProducts.filter(p => !keyword || `${p.productCode} ${p.product}`.toLowerCase().includes(keyword));
   const products = sortProductsForTrend(filtered, dates, metric, sortMode).slice(0, keyword ? 500 : topN);
-  return { products, dates, keyword, metric, sortMode, topN };
-}
-
-function renderTrendTable() {
-  const allProducts = aggregateProducts();
-  const dates = getDates();
-  if (!allProducts.length) return setEmpty('trendTable');
-  const { products, keyword, metric, sortMode, topN } = getVisibleTrendProducts();
   const dateHeaders = dates.map(d => `<th class="num">${d}</th>`).join('');
   const totalHeader = metric === 'quantity' ? '累計數量' : '累計含稅金額';
   const sortNote = getSortNote(sortMode, metric, dates);
@@ -555,48 +548,6 @@ function exportDaily() {
   downloadCSV('每日銷售彙總.csv', toCSV(rows, headers));
 }
 
-function exportCurrentTrend() {
-  if (!state.rows.length) return alert('目前沒有可匯出的商品日銷售趨勢資料。');
-  const { products, dates, metric, sortMode, topN, keyword } = getVisibleTrendProducts();
-  const metricLabel = metric === 'quantity' ? '數量' : '含稅金額';
-  const totalLabel = metric === 'quantity' ? '累計數量' : '累計含稅金額';
-  const sortNote = getSortNote(sortMode, metric, dates);
-  const exportedAt = new Date().toLocaleString('zh-TW', { hour12: false });
-  const rows = products.map((p, index) => {
-    const row = {
-      rank: index + 1,
-      productCode: p.productCode,
-      product: p.product,
-      metric: metricLabel,
-      sortRule: sortNote,
-      keyword: keyword || '',
-      displayLimit: keyword ? '搜尋結果最多 500 筆' : `Top ${topN}`,
-      total: metric === 'quantity' ? p.totalQty : p.totalAmount,
-      exportedAt
-    };
-    dates.forEach(date => {
-      row[date] = getMetricValue(p, date, metric);
-    });
-    return row;
-  });
-  const headers = [
-    { label:'排名', value:'rank' },
-    { label:'產品代號', value:'productCode' },
-    { label:'產品', value:'product' },
-    { label:'顯示指標', value:'metric' },
-    ...dates.map(date => ({ label: date, value: date })),
-    { label: totalLabel, value:'total' },
-    { label:'排序方式', value:'sortRule' },
-    { label:'搜尋關鍵字', value:'keyword' },
-    { label:'顯示範圍', value:'displayLimit' },
-    { label:'匯出時間', value:'exportedAt' }
-  ];
-  const start = dates[0] || 'no-date';
-  const end = dates[dates.length - 1] || 'no-date';
-  const filename = `商品日銷售趨勢_${metric}_${start}_${end}.csv`;
-  downloadCSV(filename, toCSV(rows, headers));
-}
-
 el('csvInput').addEventListener('change', e => handleFiles([...e.target.files]));
 el('loadDataBtn').addEventListener('click', loadDataFolder);
 el('searchInput').addEventListener('input', renderTrendTable);
@@ -613,7 +564,6 @@ el('trendTable').addEventListener('click', event => {
 });
 el('exportRowsBtn').addEventListener('click', exportRows);
 el('exportDailyBtn').addEventListener('click', exportDaily);
-el('exportTrendBtn').addEventListener('click', exportCurrentTrend);
 el('saveBtn').addEventListener('click', () => {
   localStorage.setItem('dailyCsvIntegratorState', JSON.stringify(state));
   alert('已儲存到此瀏覽器。');
