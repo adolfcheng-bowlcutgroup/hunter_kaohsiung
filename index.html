@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>每日產銷報表整合模型</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="app-header">
+    <div>
+      <p class="eyebrow">DAILY SALES INTEGRATOR</p>
+      <h1>每日產銷報表整合模型</h1>
+      <p class="subtitle">可自動讀取 GitHub data 資料夾，也可手動上傳 CSV 補充；自動合併日報 Dashboard、商品日銷售趨勢。</p>
+    </div>
+    <div class="header-actions">
+      <button id="saveBtn" class="btn secondary">儲存到瀏覽器</button>
+      <button id="loadBtn" class="btn secondary">載入暫存</button>
+      <button id="clearBtn" class="btn danger">清空</button>
+    </div>
+  </header>
+
+  <main class="layout">
+    <section class="panel upload-panel">
+      <div class="section-title">
+        <div>
+          <h2>1. 資料來源</h2>
+          <p>部署到 GitHub Pages 後，系統會自動讀取 <code>data/manifest.json</code>；也可手動上傳 CSV 作為補充。</p>
+        </div>
+      </div>
+
+      <div class="upload-grid">
+        <label class="dropzone" for="csvInput">
+          <input id="csvInput" type="file" accept=".csv,text/csv" multiple />
+          <span class="drop-icon">＋</span>
+          <strong>手動補傳 CSV 檔案</strong>
+          <small>主要資料會從 data 資料夾自動讀取；這裡可臨時補檔</small>
+        </label>
+
+        <div class="import-options">
+          <label>
+            報表年份
+            <input id="yearInput" type="number" min="2000" max="2100" value="2026" />
+          </label>
+          <button id="loadDataBtn" class="btn primary" type="button">讀取 data 資料夾</button>
+          <label>
+            Top 商品數量
+            <input id="topNInput" type="number" min="5" max="50" value="10" />
+          </label>
+          <label class="checkbox-row">
+            <input id="replaceSameDate" type="checkbox" checked />
+            同日期重複上傳時，取代舊資料
+          </label>
+        </div>
+      </div>
+
+      <div id="dataStatus" class="data-status">尚未讀取 data 資料夾。</div>
+      <div id="fileList" class="file-list empty">尚未載入資料</div>
+    </section>
+
+    <section class="panel dashboard-panel">
+      <div class="section-title">
+        <div>
+          <h2>2. Dashboard</h2>
+          <p>每日資料整合後自動更新。</p>
+        </div>
+        <div class="export-actions">
+          <button id="exportRowsBtn" class="btn primary">匯出整合明細 CSV</button>
+          <button id="exportDailyBtn" class="btn secondary">匯出日彙總 CSV</button>
+        </div>
+      </div>
+
+      <div class="kpi-grid">
+        <div class="kpi-card"><span>累計含稅銷售額</span><strong id="kpiRevenue">0</strong></div>
+        <div class="kpi-card"><span>累計銷售數量</span><strong id="kpiQty">0</strong></div>
+        <div class="kpi-card"><span>銷售品項數</span><strong id="kpiProducts">0</strong></div>
+        <div class="kpi-card"><span>平均每日銷售額</span><strong id="kpiAvgRevenue">0</strong></div>
+        <div class="kpi-card"><span>最高銷售日</span><strong id="kpiBestDate">-</strong></div>
+        <div class="kpi-card"><span>Top 商品</span><strong id="kpiTopProduct">-</strong></div>
+      </div>
+
+      <div class="comparison" id="comparisonBox">尚無足夠資料可比較昨日差異。</div>
+    </section>
+
+    <section class="panel table-panel">
+      <div class="section-title">
+        <div>
+          <h2>每日總覽</h2>
+          <p>每一天的銷售品項數、數量與金額。</p>
+        </div>
+      </div>
+      <div class="table-wrap daily-scroll">
+        <table id="dailyTable"></table>
+      </div>
+    </section>
+
+    <section class="panel table-panel wide">
+      <div class="section-title">
+        <div>
+          <h2>商品日銷售趨勢</h2>
+          <p>橫向日期比較，適合看每日商品量變化與累計貢獻。</p>
+        </div>
+        <div class="toolbar">
+          <input id="searchInput" type="search" placeholder="搜尋產品代號或產品名稱" />
+          <select id="metricSelect">
+            <option value="quantity">顯示數量</option>
+            <option value="amount">顯示含稅金額</option>
+          </select>
+          <select id="sortSelect" title="商品日銷售趨勢排序方式">
+            <option value="totalAmountDesc">排序：累計含稅金額高到低</option>
+            <option value="totalQtyDesc">排序：累計數量高到低</option>
+            <option value="latestMetricDesc">排序：最新日高到低</option>
+            <option value="latestMetricAsc">排序：最新日低到高</option>
+            <option value="diffMetricDesc">排序：較前日增加最多</option>
+            <option value="diffMetricAsc">排序：較前日減少最多</option>
+            <option value="productCodeAsc">排序：產品代號 A 到 Z</option>
+          </select>
+        </div>
+      </div>
+      <div class="table-wrap large">
+        <table id="trendTable"></table>
+      </div>
+    </section>
+
+    <section class="panel table-panel wide product-analysis-panel">
+      <div class="section-title">
+        <div>
+          <h2>單一商品趨勢分析</h2>
+          <p>在「商品日銷售趨勢」表格點擊任一商品後，這裡會顯示該商品的銷售曲線與統計值。</p>
+        </div>
+      </div>
+      <div id="productAnalysis" class="product-analysis empty-analysis">
+        請先在「商品日銷售趨勢」點擊一個商品。
+      </div>
+    </section>
+  </main>
+
+  <template id="emptyTableTemplate">
+    <tr><td class="empty-cell">尚無資料，請先上傳 CSV。</td></tr>
+  </template>
+
+  <script src="app.js"></script>
+</body>
+</html>
