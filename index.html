@@ -27,32 +27,22 @@
         </div>
       </div>
 
-      <div class="upload-grid">
-        <label class="dropzone" for="csvInput">
-          <input id="csvInput" type="file" accept=".csv,text/csv" multiple />
-          <span class="drop-icon">＋</span>
-          <strong>手動補傳 CSV 檔案</strong>
-          <small>主要資料會從 data 資料夾自動讀取；這裡可臨時補檔</small>
-        </label>
-
-        <div class="import-options">
+      <div class="data-source-grid">
+        <div class="import-options auto-only">
           <label>
             報表年份
             <input id="yearInput" type="number" min="2000" max="2100" value="2026" />
           </label>
-          <button id="loadDataBtn" class="btn primary" type="button">讀取 data 資料夾</button>
+          <button id="loadDataBtn" class="btn primary" type="button">重新讀取 data 資料夾</button>
           <label>
             Top 商品數量
             <input id="topNInput" type="number" min="5" max="50" value="10" />
-          </label>
-          <label class="checkbox-row">
-            <input id="replaceSameDate" type="checkbox" checked />
-            同日期重複上傳時，取代舊資料
           </label>
         </div>
       </div>
 
       <div id="dataStatus" class="data-status">尚未讀取 data 資料夾。</div>
+      <div id="ecommerceStatus" class="data-status warning">電商報表尚未載入。部署時請放入 <code>data/ecommerce_sales.csv</code>。</div>
       <div id="fileList" class="file-list empty">尚未載入資料</div>
     </section>
 
@@ -133,8 +123,12 @@
     </section>
   </main>
 
+  <button id="toggleEcommerceBtn" class="floating-ecommerce-toggle" type="button" disabled>
+    只看現場
+  </button>
+
   <template id="emptyTableTemplate">
-    <tr><td class="empty-cell">尚無資料，請先上傳 CSV。</td></tr>
+    <tr><td class="empty-cell">尚無資料，請先讀取 data 資料夾。</td></tr>
   </template>
 
   <script src="app.js"></script>
