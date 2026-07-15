@@ -1,11 +1,14 @@
 const DATA_MANIFEST_PATH = 'data/manifest.json';
 const ECOMMERCE_DATA_PATH = 'data/ecommerce_sales.csv';
+const EXCLUDED_PRODUCTS_PATH = 'data/excluded_products.json';
 
 const state = {
   rows: [],
   files: [],
   ecommerceRows: [],
   ecommerceSource: 'none',
+  excludedProductCodes: new Set(),
+  exclusionSource: 'none',
   includeEcommerceInAnalysis: false,
   selectedProductKey: '',
   dataSource: 'none'
@@ -35,6 +38,46 @@ const median = values => {
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
+
+
+function normalizeProductCode(code) {
+  return String(code || '').trim().toUpperCase();
+}
+
+function isExcludedProductCode(code) {
+  const normalized = normalizeProductCode(code);
+  return Boolean(normalized && state.excludedProductCodes.has(normalized));
+}
+
+function applyProductExclusions(rows) {
+  return rows.filter(row => !isExcludedProductCode(row.productCode));
+}
+
+function normalizeExcludedProductCodes(config) {
+  const values = [];
+  if (Array.isArray(config)) values.push(...config);
+  if (Array.isArray(config?.productCodes)) values.push(...config.productCodes);
+  if (Array.isArray(config?.excludedProductCodes)) values.push(...config.excludedProductCodes);
+  if (Array.isArray(config?.excludeProductCodes)) values.push(...config.excludeProductCodes);
+  return [...new Set(values.map(normalizeProductCode).filter(Boolean))];
+}
+
+async function loadProductExclusions() {
+  try {
+    const text = await fetchTextNoCache(EXCLUDED_PRODUCTS_PATH);
+    const config = JSON.parse(text);
+    const codes = normalizeExcludedProductCodes(config);
+    state.excludedProductCodes = new Set(codes);
+    state.exclusionSource = 'data';
+    console.info(`已載入排除產品代號 ${codes.length} 項`, codes);
+    return codes;
+  } catch (error) {
+    state.excludedProductCodes = new Set();
+    state.exclusionSource = 'none';
+    console.info(`未讀取到 ${EXCLUDED_PRODUCTS_PATH}，目前不排除任何產品代號。`);
+    return [];
+  }
+}
 
 function parseCSV(text) {
   text = text.replace(/^\uFEFF/, '');
@@ -157,6 +200,11 @@ async function loadDataFolder() {
   try {
     const manifestText = await fetchTextNoCache(DATA_MANIFEST_PATH);
     const manifest = JSON.parse(manifestText);
+    const manifestExcludedCodes = normalizeExcludedProductCodes(manifest);
+    if (manifestExcludedCodes.length) {
+      state.excludedProductCodes = new Set([...state.excludedProductCodes, ...manifestExcludedCodes]);
+      state.exclusionSource = state.exclusionSource === 'data' ? 'data + manifest' : 'manifest';
+    }
     const files = normalizeManifestFiles(manifest);
     if (!files.length) {
       state.rows = [];
@@ -171,14 +219,17 @@ async function loadDataFolder() {
     const loadedRows = [];
     const loadedFiles = [];
     const failedFiles = [];
+    let excludedRowCount = 0;
 
     for (const file of files) {
       try {
         const text = await fetchTextNoCache(file.url);
         const parsed = parseCSV(text);
         const rows = normalizeFileRows(parsed, file.name, file.date);
-        loadedRows.push(...rows);
-        loadedFiles.push({ name: file.name, date: file.date, rows: rows.length, source: 'data' });
+        const filteredRows = applyProductExclusions(rows);
+        excludedRowCount += rows.length - filteredRows.length;
+        loadedRows.push(...filteredRows);
+        loadedFiles.push({ name: file.name, date: file.date, rows: filteredRows.length, source: 'data' });
       } catch (error) {
         console.error(`讀取 data 檔案失敗：${file.path}`, error);
         failedFiles.push(file.path);
@@ -195,7 +246,8 @@ async function loadDataFolder() {
     const dates = getDates();
     const range = dates.length ? (dates.length === 1 ? dates[0] : `${dates[0]} ～ ${dates[dates.length - 1]}`) : '-';
     const failNote = failedFiles.length ? `；${failedFiles.length} 個檔案讀取失敗，請查看 Console 或檔名路徑` : '';
-    setDataStatus(`已從 <code>data</code> 載入 <strong>${fmtInt(loadedFiles.length)}</strong> 個檔案、<strong>${fmtInt(loadedRows.length)}</strong> 筆資料；日期範圍：<strong>${escapeHtml(range)}</strong>${failNote}。`, failedFiles.length ? 'warning' : 'success');
+    const exclusionNote = state.excludedProductCodes.size ? `；已排除 <strong>${fmtInt(state.excludedProductCodes.size)}</strong> 個產品代號、<strong>${fmtInt(excludedRowCount)}</strong> 筆資料` : '';
+    setDataStatus(`已從 <code>data</code> 載入 <strong>${fmtInt(loadedFiles.length)}</strong> 個檔案、<strong>${fmtInt(loadedRows.length)}</strong> 筆資料；日期範圍：<strong>${escapeHtml(range)}</strong>${exclusionNote}${failNote}。`, failedFiles.length ? 'warning' : 'success');
   } catch (error) {
     console.warn('無法自動讀取 data/manifest.json', error);
     setDataStatus('尚未讀取到 <code>data/manifest.json</code>。若你是直接用本機檔案開啟，瀏覽器可能會擋 fetch；部署到 GitHub Pages 或本機伺服器後即可自動讀取。', 'warning');
@@ -261,7 +313,7 @@ function normalizeEcommerceRows(parsed, filename) {
       });
     });
   });
-  return rows;
+  return applyProductExclusions(rows);
 }
 
 async function loadEcommerceDataFolder() {
@@ -403,7 +455,7 @@ async function handleFiles(files) {
       state.files = state.files.filter(f => f.date !== date);
     }
     const parsed = parseCSV(text);
-    const rows = normalizeFileRows(parsed, file.name, date);
+    const rows = applyProductExclusions(normalizeFileRows(parsed, file.name, date));
     state.rows.push(...rows);
     added.push({ name: file.name, date, rows: rows.length });
   }
@@ -603,6 +655,7 @@ function renderFileList() {
       <span><strong>${fmtInt(totalRows)}</strong> 筆資料</span>
       <span>日期範圍：<strong>${escapeHtml(dateRange)}</strong></span>
       <span>來源：<strong>${escapeHtml(state.dataSource === 'data' ? 'data 資料夾' : state.dataSource === 'data+manual' ? 'data 資料夾 + 手動補傳' : '手動補傳')}</strong></span>
+      <span>排除產品代號：<strong>${fmtInt(state.excludedProductCodes.size)}</strong> 項</span>
     </div>`;
 }
 
@@ -938,7 +991,11 @@ el('toggleEcommerceBtn').addEventListener('click', () => {
   state.includeEcommerceInAnalysis = !state.includeEcommerceInAnalysis;
   renderAll();
 });
-el('loadDataBtn').addEventListener('click', loadDataFolder);
+el('loadDataBtn').addEventListener('click', async () => {
+  await loadProductExclusions();
+  await loadDataFolder();
+  await loadEcommerceDataFolder();
+});
 el('searchInput').addEventListener('input', renderTrendTable);
 el('metricSelect').addEventListener('change', () => { renderTrendTable(); renderProductAnalysis(); });
 el('sortSelect').addEventListener('change', renderTrendTable);
@@ -954,16 +1011,20 @@ el('trendTable').addEventListener('click', event => {
 el('exportRowsBtn').addEventListener('click', exportRows);
 el('exportDailyBtn').addEventListener('click', exportDaily);
 el('saveBtn').addEventListener('click', () => {
-  localStorage.setItem('dailyCsvIntegratorState', JSON.stringify(state));
+  localStorage.setItem('dailyCsvIntegratorState', JSON.stringify({
+    ...state,
+    excludedProductCodes: [...state.excludedProductCodes]
+  }));
   alert('已儲存到此瀏覽器。');
 });
 el('loadBtn').addEventListener('click', () => {
   const saved = localStorage.getItem('dailyCsvIntegratorState');
   if (!saved) return alert('目前沒有暫存資料。');
   const parsed = JSON.parse(saved);
-  state.rows = parsed.rows || [];
+  state.excludedProductCodes = new Set(Array.isArray(parsed.excludedProductCodes) ? parsed.excludedProductCodes.map(normalizeProductCode).filter(Boolean) : []);
+  state.rows = applyProductExclusions(parsed.rows || []);
   state.files = parsed.files || [];
-  state.ecommerceRows = parsed.ecommerceRows || [];
+  state.ecommerceRows = applyProductExclusions(parsed.ecommerceRows || []);
   state.ecommerceSource = parsed.ecommerceSource || 'none';
   state.includeEcommerceInAnalysis = Boolean(parsed.includeEcommerceInAnalysis);
   state.selectedProductKey = parsed.selectedProductKey || '';
@@ -984,5 +1045,7 @@ el('clearBtn').addEventListener('click', () => {
 });
 
 renderAll();
-loadDataFolder();
-loadEcommerceDataFolder();
+loadProductExclusions().then(() => {
+  loadDataFolder();
+  loadEcommerceDataFolder();
+});
