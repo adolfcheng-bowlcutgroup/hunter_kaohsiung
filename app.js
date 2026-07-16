@@ -643,26 +643,7 @@ function renderDashboard() {
 }
 
 function renderFileList() {
-  const box = el('fileList');
-  if (!state.files.length) {
-    box.className = 'file-list empty';
-    box.textContent = '尚未載入資料';
-    return;
-  }
-
-  const dates = [...new Set(state.files.map(f => f.date))].sort();
-  const totalRows = state.files.reduce((sum, f) => sum + (Number(f.rows) || 0), 0);
-  const dateRange = dates.length === 1 ? dates[0] : `${dates[0]} ～ ${dates[dates.length - 1]}`;
-
-  box.className = 'file-list';
-  box.innerHTML = `
-    <div class="file-summary">
-      <span class="summary-pill">已載入 ${fmtInt(state.files.length)} 個檔案</span>
-      <span><strong>${fmtInt(totalRows)}</strong> 筆資料</span>
-      <span>日期範圍：<strong>${escapeHtml(dateRange)}</strong></span>
-      <span>來源：<strong>${escapeHtml(state.dataSource === 'data' ? 'data 資料夾' : state.dataSource === 'data+manual' ? 'data 資料夾 + 手動補傳' : '手動補傳')}</strong></span>
-      <span>排除產品代號：<strong>${fmtInt(state.excludedProductCodes.size)}</strong> 項</span>
-    </div>`;
+  // 檔案載入摘要已整合到 dataStatus，避免資料來源視窗重複顯示同一組資訊。
 }
 
 function renderDailyTable() {
