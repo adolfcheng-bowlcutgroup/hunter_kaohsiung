@@ -131,12 +131,18 @@ function inferDateFromFilename(filename, year) {
 }
 
 function normalizeDateHeader(header, year) {
-  const raw = String(header || '').trim();
+  const raw = String(header || '').replace(/^\uFEFF/, '').trim();
   if (!raw) return '';
+
   const iso = raw.match(/^(\d{4})[-\/](\d{1,2})[-\/](\d{1,2})$/);
   if (iso) return `${iso[1]}-${String(Number(iso[2])).padStart(2, '0')}-${String(Number(iso[3])).padStart(2, '0')}`;
-  const md = raw.match(/^(\d{1,2})\/(\d{1,2})$/);
+
+  const mdSlash = raw.match(/^(\d{1,2})\/(\d{1,2})$/);
+  const mdDash = raw.match(/^(\d{1,2})-(\d{1,2})$/);
+  const mdZh = raw.match(/^(\d{1,2})\s*月\s*(\d{1,2})\s*日?$/);
+  const md = mdSlash || mdDash || mdZh;
   if (!md) return '';
+
   const month = Number(md[1]);
   const day = Number(md[2]);
   if (month < 1 || month > 12 || day < 1 || day > 31) return '';
