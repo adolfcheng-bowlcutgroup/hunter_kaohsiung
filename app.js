@@ -1016,40 +1016,6 @@ el('trendTable').addEventListener('click', event => {
 });
 el('exportRowsBtn').addEventListener('click', exportRows);
 el('exportDailyBtn').addEventListener('click', exportDaily);
-el('saveBtn').addEventListener('click', () => {
-  localStorage.setItem('dailyCsvIntegratorState', JSON.stringify({
-    ...state,
-    excludedProductCodes: [...state.excludedProductCodes]
-  }));
-  alert('已儲存到此瀏覽器。');
-});
-el('loadBtn').addEventListener('click', () => {
-  const saved = localStorage.getItem('dailyCsvIntegratorState');
-  if (!saved) return alert('目前沒有暫存資料。');
-  const parsed = JSON.parse(saved);
-  state.excludedProductCodes = new Set(Array.isArray(parsed.excludedProductCodes) ? parsed.excludedProductCodes.map(normalizeProductCode).filter(Boolean) : []);
-  state.rows = applyProductExclusions(parsed.rows || []);
-  state.files = parsed.files || [];
-  state.ecommerceRows = applyProductExclusions(parsed.ecommerceRows || []);
-  state.ecommerceSource = parsed.ecommerceSource || 'none';
-  state.includeEcommerceInAnalysis = Boolean(parsed.includeEcommerceInAnalysis);
-  state.selectedProductKey = parsed.selectedProductKey || '';
-  state.dataSource = parsed.dataSource || 'browser';
-  sortRows();
-  renderAll();
-});
-el('clearBtn').addEventListener('click', () => {
-  if (!confirm('確定要清空目前整合資料？')) return;
-  state.rows = [];
-  state.files = [];
-  state.ecommerceRows = [];
-  state.ecommerceSource = 'none';
-  state.includeEcommerceInAnalysis = false;
-  state.selectedProductKey = '';
-  state.dataSource = 'none';
-  renderAll();
-});
-
 renderAll();
 loadProductExclusions().then(() => {
   loadDataFolder();
