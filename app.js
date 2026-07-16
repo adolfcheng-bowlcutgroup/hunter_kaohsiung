@@ -745,7 +745,7 @@ function renderTrendTable() {
   const keyword = el('searchInput').value.trim().toLowerCase();
   const metric = el('metricSelect').value;
   const sortMode = el('sortSelect').value;
-  const topN = Number(el('topNInput').value) || 10;
+  const topN = Number(el('topNInput').value) || 200;
   const filtered = allProducts.filter(p => !keyword || `${p.productCode} ${p.product}`.toLowerCase().includes(keyword));
   const products = sortProductsForTrend(filtered, dates, metric, sortMode).slice(0, keyword ? 500 : topN);
   const dateHeaders = dates.map(d => `<th class="num">${d}</th>`).join('');
