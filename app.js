@@ -14,6 +14,8 @@ const state = {
   ecommerceAddonPriceSource: 'none',
   includeEcommerceInAnalysis: false,
   selectedProductKey: '',
+  productAnalysisStartDate: '',
+  productAnalysisEndDate: '',
   dataSource: 'none'
 };
 
@@ -41,6 +43,32 @@ const median = values => {
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
+
+function getAnalysisDateRange(dates) {
+  const sortedDates = [...new Set(dates.filter(Boolean))].sort();
+  if (!sortedDates.length) return { dates: [], start: '', end: '', min: '', max: '', hasCustomRange: false };
+
+  const min = sortedDates[0];
+  const max = sortedDates[sortedDates.length - 1];
+  let start = state.productAnalysisStartDate || min;
+  let end = state.productAnalysisEndDate || max;
+
+  if (start < min) start = min;
+  if (start > max) start = max;
+  if (end < min) end = min;
+  if (end > max) end = max;
+  if (start > end) [start, end] = [end, start];
+
+  const filteredDates = sortedDates.filter(date => date >= start && date <= end);
+  return {
+    dates: filteredDates,
+    start,
+    end,
+    min,
+    max,
+    hasCustomRange: Boolean(state.productAnalysisStartDate || state.productAnalysisEndDate)
+  };
+}
 
 
 function normalizeProductCode(code) {
@@ -915,9 +943,12 @@ function renderProductAnalysis() {
   const ecommerce = aggregateEcommerceForProduct(product);
   const hasEcommerceMatch = ecommerce.totalQty > 0 || Object.keys(ecommerce.byDate).length > 0;
   const showEcommerce = state.includeEcommerceInAnalysis && hasEcommerceMatch;
-  const dates = showEcommerce ? [...new Set([...mainDates, ...Object.keys(ecommerce.byDate)])].sort() : mainDates;
+  const allDates = showEcommerce ? [...new Set([...mainDates, ...Object.keys(ecommerce.byDate)])].sort() : mainDates;
+  const range = getAnalysisDateRange(allDates);
+  const dates = range.dates;
+  const mainDatesInRange = mainDates.filter(date => date >= range.start && date <= range.end);
 
-  const onsiteStatPoints = mainDates.map(date => {
+  const onsiteStatPoints = mainDatesInRange.map(date => {
     const main = product.byDate[date] || { quantity: 0, amount: 0 };
     return { date, quantity: main.quantity || 0, amount: main.amount || 0 };
   });
@@ -950,16 +981,30 @@ function renderProductAnalysis() {
   const ecommerceNote = state.includeEcommerceInAnalysis
     ? (hasEcommerceMatch ? `已加入電商資料；現場統計卡片維持只計算現場資料。電商端匹配到：${ecommerce.matchedProducts.map(escapeHtml).join('、') || escapeHtml(product.product)}。` : '已開啟加入電商資料，但這個商品在電商報表中沒有匹配資料。')
     : '目前未加入電商資料。';
+  const rangeNote = range.hasCustomRange
+    ? `目前分析區間：${escapeHtml(range.start)} ～ ${escapeHtml(range.end)}`
+    : `目前分析區間：全部日期（${escapeHtml(range.min)} ～ ${escapeHtml(range.max)}）`;
 
   box.className = 'product-analysis';
   box.innerHTML = `
     <div class="analysis-head">
       <div>
         <h3>${escapeHtml(product.product || '未命名商品')}</h3>
-        <p>產品代號：${escapeHtml(product.productCode || '-')}｜現場分析區間：${escapeHtml(mainDates[0])} ～ ${escapeHtml(mainDates[mainDates.length - 1])}${showEcommerce ? `｜含電商曲線區間：${escapeHtml(dates[0])} ～ ${escapeHtml(dates[dates.length - 1])}` : ''}</p>
+        <p>產品代號：${escapeHtml(product.productCode || '-')}｜${rangeNote}${showEcommerce ? `｜含電商資料` : ''}</p>
         <p class="analysis-note">${ecommerceNote}</p>
       </div>
       <div class="analysis-badge">曲線指標：${metricLabel}</div>
+    </div>
+    <div class="analysis-range-toolbar">
+      <div class="range-fields">
+        <label>起日
+          <input id="analysisStartDate" type="date" min="${escapeHtml(range.min)}" max="${escapeHtml(range.max)}" value="${escapeHtml(range.start)}">
+        </label>
+        <label>迄日
+          <input id="analysisEndDate" type="date" min="${escapeHtml(range.min)}" max="${escapeHtml(range.max)}" value="${escapeHtml(range.end)}">
+        </label>
+      </div>
+      <button id="resetAnalysisRangeBtn" class="secondary small-btn" type="button">重設全部日期</button>
     </div>
     <div class="analysis-kpis">
       <div class="analysis-card"><span>平均每日現場銷售數量</span><strong>${fmtInt(average(qtyValues))}</strong></div>
@@ -975,13 +1020,13 @@ function renderProductAnalysis() {
     </div>
     <div class="chart-box">
       <p class="chart-title">${metricLabel}曲線圖${showEcommerce ? '｜藍線：現場數量，紅線：電商數量' : ''}</p>
-      ${buildProductLineChart(points, metric, { showEcommerce })}
+      ${points.length ? buildProductLineChart(points, metric, { showEcommerce }) : '<div class="empty-range-message">此日期區間沒有可分析資料。</div>'}
     </div>
     <div class="analysis-detail-table">
       <div class="table-wrap">
         <table>
           <thead><tr><th>日期</th><th class="num">現場銷售數量</th><th class="num">現場含稅銷售金額</th>${showEcommerce ? '<th class="num">電商銷售數量</th><th class="num">電商回推金額</th><th class="num">合併銷售數量</th><th class="num">合併回推金額</th>' : ''}</tr></thead>
-          <tbody>${points.map(p => `<tr><td>${p.date}</td><td class="num">${fmtInt(p.quantity)}</td><td class="num">${fmtMoney(p.amount)}</td>${showEcommerce ? `<td class="num ecommerce-num">${fmtInt(p.ecommerceQuantity)}</td><td class="num ecommerce-num">${fmtMoney(p.ecommerceEstimatedAmount)}</td><td class="num"><strong>${fmtInt(p.combinedQuantity)}</strong></td><td class="num"><strong>${fmtMoney(p.combinedAmount)}</strong></td>` : ''}</tr>`).join('')}</tbody>
+          <tbody>${points.length ? points.map(p => `<tr><td>${p.date}</td><td class="num">${fmtInt(p.quantity)}</td><td class="num">${fmtMoney(p.amount)}</td>${showEcommerce ? `<td class="num ecommerce-num">${fmtInt(p.ecommerceQuantity)}</td><td class="num ecommerce-num">${fmtMoney(p.ecommerceEstimatedAmount)}</td><td class="num"><strong>${fmtInt(p.combinedQuantity)}</strong></td><td class="num"><strong>${fmtMoney(p.combinedAmount)}</strong></td>` : ''}</tr>`).join('') : `<tr><td colspan="${showEcommerce ? 7 : 3}" class="empty-cell">此日期區間沒有資料</td></tr>`}</tbody>
         </table>
       </div>
     </div>`;
@@ -1064,6 +1109,22 @@ el('searchInput').addEventListener('input', renderTrendTable);
 el('metricSelect').addEventListener('change', () => { renderTrendTable(); renderProductAnalysis(); });
 el('sortSelect').addEventListener('change', renderTrendTable);
 el('topNInput').addEventListener('change', renderTrendTable);
+el('productAnalysis').addEventListener('change', event => {
+  if (event.target.id === 'analysisStartDate') {
+    state.productAnalysisStartDate = event.target.value;
+    renderProductAnalysis();
+  }
+  if (event.target.id === 'analysisEndDate') {
+    state.productAnalysisEndDate = event.target.value;
+    renderProductAnalysis();
+  }
+});
+el('productAnalysis').addEventListener('click', event => {
+  if (event.target.id !== 'resetAnalysisRangeBtn') return;
+  state.productAnalysisStartDate = '';
+  state.productAnalysisEndDate = '';
+  renderProductAnalysis();
+});
 el('trendTable').addEventListener('click', event => {
   const row = event.target.closest('tr[data-product-key]');
   if (!row) return;
