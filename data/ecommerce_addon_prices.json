@@ -1,0 +1,33 @@
+{
+  "description": "電商加價購指定含稅單價設定。當 ecommerce_sales.csv 的品項符合 productCode 與 product 時，電商金額會使用 quantity * unitPrice，不再用現場單價回推。",
+  "items": [
+    {
+      "rowNo": 13,
+      "productCode": "HUKHB00325",
+      "product": "獵人貪婪之島-獵人貼紙組（6入一組）【加價購】",
+      "unitPrice": 49,
+      "note": "加價購實際含稅單價"
+    },
+    {
+      "rowNo": 41,
+      "productCode": "HUKHB00225",
+      "product": "獵人貪婪之島-生命之音刺繡徽章【加價購】",
+      "unitPrice": 89,
+      "note": "加價購實際含稅單價"
+    },
+    {
+      "rowNo": 42,
+      "productCode": "HUKHB02425",
+      "product": "獵人貪婪之島-卡片鑰匙圈(30款隨機出貨)【加價購】",
+      "unitPrice": 99,
+      "note": "加價購實際含稅單價"
+    },
+    {
+      "rowNo": 43,
+      "productCode": "HUKHB02525",
+      "product": "獵人貪婪之島-貪婪之島卡片包(5張一包，隨機出貨)【加價購】",
+      "unitPrice": 89,
+      "note": "加價購實際含稅單價"
+    }
+  ]
+}
