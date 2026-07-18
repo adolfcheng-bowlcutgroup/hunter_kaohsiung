@@ -1,6 +1,7 @@
 const DATA_MANIFEST_PATH = 'data/manifest.json';
 const ECOMMERCE_DATA_PATH = 'data/ecommerce_sales.csv';
 const EXCLUDED_PRODUCTS_PATH = 'data/excluded_products.json';
+const ECOMMERCE_ADDON_PRICES_PATH = 'data/ecommerce_addon_prices.json';
 
 const state = {
   rows: [],
@@ -9,6 +10,8 @@ const state = {
   ecommerceSource: 'none',
   excludedProductCodes: new Set(),
   exclusionSource: 'none',
+  ecommerceAddonPriceRules: [],
+  ecommerceAddonPriceSource: 'none',
   includeEcommerceInAnalysis: false,
   selectedProductKey: '',
   dataSource: 'none'
@@ -115,6 +118,54 @@ function parseCSV(text) {
     if (row.some(v => String(v).trim() !== '')) rows.push(row);
   }
   return rows;
+}
+
+
+function normalizeEcommerceAddonPriceRules(config) {
+  const sourceItems = Array.isArray(config) ? config : (Array.isArray(config?.items) ? config.items : []);
+  return sourceItems.map(item => {
+    const unitPrice = cleanNumber(item.unitPrice);
+    return {
+      rowNo: Number(item.rowNo) || null,
+      productCode: normalizeProductCode(item.productCode),
+      product: String(item.product || '').trim(),
+      productContains: String(item.productContains || '').trim(),
+      unitPrice,
+      note: String(item.note || '').trim()
+    };
+  }).filter(item => item.unitPrice > 0 && (item.productCode || item.product || item.productContains || item.rowNo));
+}
+
+async function loadEcommerceAddonPrices() {
+  try {
+    const text = await fetchTextNoCache(ECOMMERCE_ADDON_PRICES_PATH);
+    const config = JSON.parse(text);
+    const rules = normalizeEcommerceAddonPriceRules(config);
+    state.ecommerceAddonPriceRules = rules;
+    state.ecommerceAddonPriceSource = 'data';
+    console.info(`已載入電商加價購指定單價 ${rules.length} 項`, rules);
+    return rules;
+  } catch (error) {
+    state.ecommerceAddonPriceRules = [];
+    state.ecommerceAddonPriceSource = 'none';
+    console.info(`未讀取到 ${ECOMMERCE_ADDON_PRICES_PATH}，電商金額維持現場單價回推。`);
+    return [];
+  }
+}
+
+function getEcommerceAddonRule(row) {
+  if (!row || !state.ecommerceAddonPriceRules.length) return null;
+  const code = normalizeProductCode(row.productCode);
+  const product = String(row.product || '').trim();
+  const rowNo = Number(row.rowNo) || null;
+
+  return state.ecommerceAddonPriceRules.find(rule => {
+    if (rule.rowNo && rowNo && rule.rowNo !== rowNo) return false;
+    if (rule.productCode && code && rule.productCode !== code) return false;
+    if (rule.product && product && rule.product !== product) return false;
+    if (rule.productContains && product && !product.includes(rule.productContains)) return false;
+    return true;
+  }) || null;
 }
 
 function findHeader(headers, keys) {
@@ -309,14 +360,25 @@ function normalizeEcommerceRows(parsed, filename) {
     dateColumns.forEach(col => {
       const raw = String(r[col.index] ?? '').trim();
       if (raw === '') return;
-      rows.push({
+      const row = {
         date: col.date,
         sourceFile: filename,
         rowNo: rowIndex + 2,
         productCode,
         product,
         quantity: cleanNumber(raw)
-      });
+      };
+      const addonRule = getEcommerceAddonRule(row);
+      if (addonRule) {
+        row.addonUnitPrice = addonRule.unitPrice;
+        row.addonAmount = row.quantity * addonRule.unitPrice;
+        row.isAddonPriced = true;
+      } else {
+        row.addonUnitPrice = 0;
+        row.addonAmount = 0;
+        row.isAddonPriced = false;
+      }
+      rows.push(row);
     });
   });
   return applyProductExclusions(rows);
@@ -369,7 +431,7 @@ async function handleEcommerceFile(file) {
 }
 
 function aggregateEcommerceForProduct(product) {
-  if (!product || !state.ecommerceRows.length) return { byDate: {}, totalQty: 0, matchedProducts: [] };
+  if (!product || !state.ecommerceRows.length) return { byDate: {}, totalQty: 0, addonQty: 0, addonAmount: 0, matchedProducts: [] };
   const selectedCode = String(product.productCode || '').trim();
   const selectedName = String(product.product || '').trim();
   const matched = state.ecommerceRows.filter(r => {
@@ -381,13 +443,23 @@ function aggregateEcommerceForProduct(product) {
   const byDate = {};
   const names = new Set();
   let totalQty = 0;
+  let addonQty = 0;
+  let addonAmount = 0;
   matched.forEach(r => {
-    if (!byDate[r.date]) byDate[r.date] = { quantity: 0 };
+    if (!byDate[r.date]) byDate[r.date] = { quantity: 0, addonQuantity: 0, addonAmount: 0, regularQuantity: 0 };
     byDate[r.date].quantity += r.quantity;
+    if (r.isAddonPriced) {
+      byDate[r.date].addonQuantity += r.quantity;
+      byDate[r.date].addonAmount += r.addonAmount || 0;
+      addonQty += r.quantity;
+      addonAmount += r.addonAmount || 0;
+    } else {
+      byDate[r.date].regularQuantity += r.quantity;
+    }
     totalQty += r.quantity;
     if (r.product) names.add(r.product);
   });
-  return { byDate, totalQty, matchedProducts: [...names] };
+  return { byDate, totalQty, addonQty, addonAmount, matchedProducts: [...names] };
 }
 
 function getEcommerceDates() {
@@ -418,9 +490,12 @@ function augmentProductWithEcommerce(product, dates) {
   let ecommerceEstimatedAmount = 0;
   dates.forEach(date => {
     const onsite = product.byDate[date] || { quantity: 0, amount: 0 };
-    const ecommerceQty = ecommerce.byDate[date]?.quantity || 0;
+    const ecommerceDay = ecommerce.byDate[date] || { quantity: 0, regularQuantity: 0, addonAmount: 0 };
+    const ecommerceQty = ecommerceDay.quantity || 0;
+    const ecommerceRegularQty = ecommerceDay.regularQuantity ?? ecommerceQty;
+    const ecommerceAddonAmount = ecommerceDay.addonAmount || 0;
     const estimatedUnitPrice = estimateOnsiteUnitPrice(product, date);
-    const estimatedEcommerceAmount = ecommerceQty * estimatedUnitPrice;
+    const estimatedEcommerceAmount = ecommerceRegularQty * estimatedUnitPrice + ecommerceAddonAmount;
     const quantity = (onsite.quantity || 0) + ecommerceQty;
     const amount = (onsite.amount || 0) + estimatedEcommerceAmount;
     trendByDate[date] = {
@@ -849,9 +924,10 @@ function renderProductAnalysis() {
 
   const points = dates.map(date => {
     const main = product.byDate[date] || { quantity: 0, amount: 0 };
-    const ec = ecommerce.byDate[date] || { quantity: 0 };
+    const ec = ecommerce.byDate[date] || { quantity: 0, regularQuantity: 0, addonAmount: 0 };
     const estimatedUnitPrice = estimateOnsiteUnitPrice(product, date);
-    const estimatedEcommerceAmount = (ec.quantity || 0) * estimatedUnitPrice;
+    const ecommerceRegularQty = ec.regularQuantity ?? (ec.quantity || 0);
+    const estimatedEcommerceAmount = ecommerceRegularQty * estimatedUnitPrice + (ec.addonAmount || 0);
     return {
       date,
       quantity: main.quantity || 0,
@@ -980,6 +1056,7 @@ el('toggleEcommerceBtn').addEventListener('click', () => {
 });
 el('loadDataBtn').addEventListener('click', async () => {
   await loadProductExclusions();
+  await loadEcommerceAddonPrices();
   await loadDataFolder();
   await loadEcommerceDataFolder();
 });
@@ -998,7 +1075,7 @@ el('trendTable').addEventListener('click', event => {
 el('exportRowsBtn').addEventListener('click', exportRows);
 el('exportDailyBtn').addEventListener('click', exportDaily);
 renderAll();
-loadProductExclusions().then(() => {
+Promise.all([loadProductExclusions(), loadEcommerceAddonPrices()]).then(() => {
   loadDataFolder();
   loadEcommerceDataFolder();
 });
