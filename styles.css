@@ -498,3 +498,62 @@ code {
     grid-template-columns: 1fr;
   }
 }
+
+/* Single product analysis date range filter */
+.analysis-range-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  flex-wrap: wrap;
+  padding: 12px 14px;
+  margin: 14px 0 16px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: #fbfcff;
+}
+.range-fields {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.range-fields label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 13px;
+  font-weight: 800;
+}
+.range-fields input[type="date"] {
+  min-width: 156px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fff;
+  color: var(--text);
+  font: inherit;
+}
+.small-btn {
+  padding: 9px 12px;
+  font-size: 13px;
+}
+.empty-range-message,
+.empty-cell {
+  padding: 22px;
+  text-align: center;
+  color: var(--muted);
+}
+
+@media (max-width: 720px) {
+  .analysis-range-toolbar {
+    align-items: stretch;
+  }
+  .range-fields,
+  .range-fields label,
+  .range-fields input[type="date"],
+  .analysis-range-toolbar .small-btn {
+    width: 100%;
+  }
+}
