@@ -306,11 +306,18 @@ function setEcommerceStatus(message, type = 'info') {
   box.innerHTML = message;
 }
 
+function applyViewModeClass(mode) {
+  if (!document.body) return;
+  document.body.classList.remove('view-mode-onsite', 'view-mode-combined', 'view-mode-ecommerce');
+  document.body.classList.add(`view-mode-${mode}`);
+}
+
 function updateEcommerceControls() {
   const toggleBtn = el('toggleEcommerceBtn');
-  if (!toggleBtn) return;
   const hasData = state.ecommerceRows.length > 0;
   const mode = getViewMode();
+  applyViewModeClass(mode);
+  if (!toggleBtn) return;
   toggleBtn.disabled = !hasData;
   toggleBtn.textContent = getViewModeLabel();
   toggleBtn.className = `floating-ecommerce-toggle mode-${mode}${mode !== 'onsite' ? ' active' : ''}`;
