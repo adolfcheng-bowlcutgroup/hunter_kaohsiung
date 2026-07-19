@@ -474,6 +474,56 @@ code {
   font-weight: 700;
 }
 
+
+/* View mode theme: ecommerce-only uses green accents */
+body.view-mode-ecommerce {
+  --ecommerce-only: #16a34a;
+  --ecommerce-only-dark: #15803d;
+  --ecommerce-only-soft: rgba(22, 163, 74, .10);
+  --ecommerce-only-border: rgba(22, 163, 74, .28);
+}
+
+body.view-mode-ecommerce .floating-ecommerce-toggle.mode-ecommerce,
+.floating-ecommerce-toggle.mode-ecommerce {
+  background: #16a34a;
+  box-shadow: 0 14px 32px rgba(22, 163, 74, .28);
+}
+
+body.view-mode-ecommerce .floating-ecommerce-toggle.mode-ecommerce:hover:not(:disabled),
+.floating-ecommerce-toggle.mode-ecommerce:hover:not(:disabled) {
+  box-shadow: 0 18px 38px rgba(22, 163, 74, .34);
+}
+
+body.view-mode-ecommerce .ecommerce-card {
+  border-color: var(--ecommerce-only-border);
+  background: linear-gradient(180deg, #fff, #f0fdf4);
+}
+
+body.view-mode-ecommerce .ecommerce-card span,
+body.view-mode-ecommerce .ecommerce-num {
+  color: var(--ecommerce-only-dark);
+}
+
+body.view-mode-ecommerce .chart-line,
+body.view-mode-ecommerce .chart-line.ecommerce-line {
+  stroke: var(--ecommerce-only);
+}
+
+body.view-mode-ecommerce .chart-dot,
+body.view-mode-ecommerce .ecommerce-dot {
+  fill: var(--ecommerce-only);
+}
+
+body.view-mode-ecommerce #trendTable td.has-ecommerce {
+  background: var(--ecommerce-only-soft);
+  color: var(--ecommerce-only-dark);
+}
+
+body.view-mode-ecommerce .data-status.success,
+body.view-mode-ecommerce .analysis-note strong {
+  color: var(--ecommerce-only-dark);
+}
+
 @media (max-width: 720px) {
   .floating-ecommerce-toggle {
     right: 14px;
