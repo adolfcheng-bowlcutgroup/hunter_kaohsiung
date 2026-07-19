@@ -12,6 +12,7 @@ const state = {
   exclusionSource: 'none',
   ecommerceAddonPriceRules: [],
   ecommerceAddonPriceSource: 'none',
+  viewMode: 'onsite',
   includeEcommerceInAnalysis: false,
   selectedProductKey: '',
   productAnalysisStartDate: '',
@@ -43,6 +44,51 @@ const median = values => {
   const mid = Math.floor(sorted.length / 2);
   return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
 };
+
+const VIEW_MODES = ['onsite', 'combined', 'ecommerce'];
+const VIEW_MODE_LABELS = {
+  onsite: '只看現場',
+  combined: '現場+電商',
+  ecommerce: '只看電商'
+};
+
+function getViewMode() {
+  if (!VIEW_MODES.includes(state.viewMode)) {
+    state.viewMode = state.includeEcommerceInAnalysis ? 'combined' : 'onsite';
+  }
+  if (!state.ecommerceRows.length && state.viewMode !== 'onsite') state.viewMode = 'onsite';
+  state.includeEcommerceInAnalysis = state.viewMode === 'combined';
+  return state.viewMode;
+}
+
+function isCombinedMode() {
+  return getViewMode() === 'combined' && state.ecommerceRows.length > 0;
+}
+
+function isEcommerceOnlyMode() {
+  return getViewMode() === 'ecommerce' && state.ecommerceRows.length > 0;
+}
+
+function usesEcommerceMode() {
+  const mode = getViewMode();
+  return state.ecommerceRows.length > 0 && (mode === 'combined' || mode === 'ecommerce');
+}
+
+function getViewModeLabel() {
+  return VIEW_MODE_LABELS[getViewMode()] || VIEW_MODE_LABELS.onsite;
+}
+
+function cycleViewMode() {
+  if (!state.ecommerceRows.length) {
+    state.viewMode = 'onsite';
+    state.includeEcommerceInAnalysis = false;
+    return;
+  }
+  const mode = getViewMode();
+  const next = mode === 'onsite' ? 'combined' : (mode === 'combined' ? 'ecommerce' : 'onsite');
+  state.viewMode = next;
+  state.includeEcommerceInAnalysis = next === 'combined';
+}
 
 function getAnalysisDateRange(dates) {
   const sortedDates = [...new Set(dates.filter(Boolean))].sort();
@@ -264,11 +310,12 @@ function updateEcommerceControls() {
   const toggleBtn = el('toggleEcommerceBtn');
   if (!toggleBtn) return;
   const hasData = state.ecommerceRows.length > 0;
+  const mode = getViewMode();
   toggleBtn.disabled = !hasData;
-  toggleBtn.textContent = state.includeEcommerceInAnalysis ? '現場+電商' : '只看現場';
-  toggleBtn.className = state.includeEcommerceInAnalysis ? 'floating-ecommerce-toggle active' : 'floating-ecommerce-toggle';
+  toggleBtn.textContent = getViewModeLabel();
+  toggleBtn.className = `floating-ecommerce-toggle mode-${mode}${mode !== 'onsite' ? ' active' : ''}`;
   toggleBtn.title = hasData
-    ? (state.includeEcommerceInAnalysis ? '點擊後切回只看現場' : '點擊後切換為現場+電商')
+    ? `目前口徑：${getViewModeLabel()}。點擊切換下一個口徑。`
     : '尚未載入電商報表';
 }
 
@@ -421,6 +468,7 @@ async function loadEcommerceDataFolder() {
     state.ecommerceRows = rows;
     state.ecommerceSource = 'data';
     if (!rows.length) {
+      state.viewMode = 'onsite';
       state.includeEcommerceInAnalysis = false;
       updateEcommerceControls();
       renderAll();
@@ -445,7 +493,10 @@ async function handleEcommerceFile(file) {
   const rows = normalizeEcommerceRows(parsed, file.name);
   state.ecommerceRows = rows;
   state.ecommerceSource = 'manual';
-  state.includeEcommerceInAnalysis = rows.length ? state.includeEcommerceInAnalysis : false;
+  if (!rows.length) {
+    state.viewMode = 'onsite';
+    state.includeEcommerceInAnalysis = false;
+  }
   updateEcommerceControls();
   renderTrendTable();
   renderProductAnalysis();
@@ -496,8 +547,9 @@ function getEcommerceDates() {
 
 function getTrendDates() {
   const mainDates = getDates();
-  if (!state.includeEcommerceInAnalysis || !state.ecommerceRows.length) return mainDates;
-  return [...new Set([...mainDates, ...getEcommerceDates()])].sort();
+  if (isEcommerceOnlyMode()) return getEcommerceDates();
+  if (isCombinedMode()) return [...new Set([...mainDates, ...getEcommerceDates()])].sort();
+  return mainDates;
 }
 
 function estimateOnsiteUnitPrice(product, date) {
@@ -508,7 +560,7 @@ function estimateOnsiteUnitPrice(product, date) {
 }
 
 function augmentProductWithEcommerce(product, dates) {
-  if (!state.includeEcommerceInAnalysis || !state.ecommerceRows.length) {
+  if (!isCombinedMode()) {
     return { ...product, trendByDate: product.byDate, trendTotalQty: product.totalQty, trendTotalAmount: product.totalAmount, ecommerceTotalQty: 0, ecommerceEstimatedAmount: 0 };
   }
   const ecommerce = aggregateEcommerceForProduct(product);
@@ -618,12 +670,92 @@ function aggregateProducts() {
 }
 
 
+function findOnsitePriceReference(row, onsiteProducts = aggregateProducts()) {
+  const code = String(row?.productCode || '').trim();
+  const name = String(row?.product || '').trim();
+  const exact = onsiteProducts.find(p => code && name && String(p.productCode || '').trim() === code && String(p.product || '').trim() === name);
+  if (exact) return exact;
+  const sameCode = onsiteProducts.find(p => code && String(p.productCode || '').trim() === code);
+  if (sameCode) return sameCode;
+  return onsiteProducts.find(p => name && String(p.product || '').trim() === name) || null;
+}
+
+function estimateEcommerceRowAmount(row, date, onsiteProducts = aggregateProducts()) {
+  if (!row) return { unitPrice: 0, amount: 0 };
+  if (row.isAddonPriced && row.addonUnitPrice > 0) {
+    return { unitPrice: row.addonUnitPrice, amount: row.quantity * row.addonUnitPrice };
+  }
+  const reference = findOnsitePriceReference(row, onsiteProducts);
+  const unitPrice = reference ? estimateOnsiteUnitPrice(reference, date) : 0;
+  return { unitPrice, amount: (row.quantity || 0) * unitPrice };
+}
+
+function aggregateEcommerceProducts(dates = getEcommerceDates()) {
+  const onsiteProducts = aggregateProducts();
+  const map = new Map();
+  state.ecommerceRows.forEach(r => {
+    const key = `${r.productCode || ''}||${r.product || ''}`;
+    if (!map.has(key)) {
+      map.set(key, {
+        productCode: r.productCode,
+        product: r.product,
+        totalQty: 0,
+        totalAmount: 0,
+        trendTotalQty: 0,
+        trendTotalAmount: 0,
+        ecommerceTotalQty: 0,
+        ecommerceEstimatedAmount: 0,
+        byDate: {},
+        trendByDate: {},
+        dates,
+        isEcommerceOnlyProduct: true
+      });
+    }
+    const item = map.get(key);
+    const estimated = estimateEcommerceRowAmount(r, r.date, onsiteProducts);
+    if (!item.byDate[r.date]) {
+      item.byDate[r.date] = {
+        quantity: 0,
+        amount: 0,
+        onsiteQuantity: 0,
+        onsiteAmount: 0,
+        ecommerceQuantity: 0,
+        estimatedEcommerceAmount: 0,
+        estimatedUnitPrice: estimated.unitPrice || 0
+      };
+    }
+    const day = item.byDate[r.date];
+    day.quantity += r.quantity || 0;
+    day.amount += estimated.amount || 0;
+    day.ecommerceQuantity += r.quantity || 0;
+    day.estimatedEcommerceAmount += estimated.amount || 0;
+    day.estimatedUnitPrice = estimated.unitPrice || day.estimatedUnitPrice || 0;
+    item.totalQty += r.quantity || 0;
+    item.totalAmount += estimated.amount || 0;
+    item.trendTotalQty += r.quantity || 0;
+    item.trendTotalAmount += estimated.amount || 0;
+    item.ecommerceTotalQty += r.quantity || 0;
+    item.ecommerceEstimatedAmount += estimated.amount || 0;
+  });
+
+  return [...map.values()].map(item => {
+    dates.forEach(date => {
+      const row = item.byDate[date] || { quantity: 0, amount: 0, onsiteQuantity: 0, onsiteAmount: 0, ecommerceQuantity: 0, estimatedEcommerceAmount: 0 };
+      item.trendByDate[date] = row;
+    });
+    return item;
+  }).sort((a, b) => b.trendTotalAmount - a.trendTotalAmount || b.trendTotalQty - a.trendTotalQty);
+}
+
+
 function getScopedProducts(dates = getTrendDates()) {
-  return aggregateProducts().map(p => augmentProductWithEcommerce(p, dates));
+  if (isEcommerceOnlyMode()) return aggregateEcommerceProducts(dates);
+  if (isCombinedMode()) return aggregateProducts().map(p => augmentProductWithEcommerce(p, dates));
+  return aggregateProducts();
 }
 
 function aggregateDailyForCurrentScope() {
-  if (!state.includeEcommerceInAnalysis || !state.ecommerceRows.length) {
+  if (!usesEcommerceMode()) {
     return aggregateDaily().map(d => ({
       ...d,
       onsiteProductCount: d.productCount,
@@ -701,7 +833,7 @@ function setEmpty(tableId) {
 }
 
 function renderDashboard() {
-  if (!state.rows.length) {
+  if (!state.rows.length && !state.ecommerceRows.length) {
     ['kpiRevenue','kpiQty','kpiProducts','kpiAvgRevenue'].forEach(id => el(id).textContent = '0');
     el('kpiBestDate').textContent = '-';
     el('kpiTopProduct').textContent = '-';
@@ -711,15 +843,13 @@ function renderDashboard() {
 
   const dates = getTrendDates();
   const daily = aggregateDailyForCurrentScope();
-  const products = state.includeEcommerceInAnalysis && state.ecommerceRows.length
-    ? getScopedProducts(dates)
-    : aggregateProducts();
+  const products = getScopedProducts(dates);
   const totalRevenue = daily.reduce((sum, d) => sum + (d.combinedAmount ?? d.amount), 0);
   const totalQty = daily.reduce((sum, d) => sum + (d.combinedQuantity ?? d.quantity), 0);
   const bestDay = [...daily].sort((a, b) => (b.combinedAmount ?? b.amount) - (a.combinedAmount ?? a.amount))[0];
   const topProduct = [...products].sort((a, b) => (b.trendTotalAmount ?? b.totalAmount) - (a.trendTotalAmount ?? a.totalAmount) || (b.trendTotalQty ?? b.totalQty) - (a.trendTotalQty ?? a.totalQty))[0];
   const productCount = products.filter(p => (p.trendTotalQty ?? p.totalQty) > 0 || (p.trendTotalAmount ?? p.totalAmount) > 0).length;
-  const modeLabel = state.includeEcommerceInAnalysis && state.ecommerceRows.length ? '現場 + 電商' : '只看現場';
+  const modeLabel = getViewModeLabel();
 
   el('kpiRevenue').textContent = fmtMoney(totalRevenue);
   el('kpiQty').textContent = fmtInt(totalQty);
@@ -736,7 +866,7 @@ function renderDashboard() {
     const diff = latestAmount - prevAmount;
     const pct = prevAmount ? diff / prevAmount * 100 : 0;
     const sign = diff >= 0 ? '+' : '';
-    const ecomPart = state.includeEcommerceInAnalysis && state.ecommerceRows.length
+    const ecomPart = usesEcommerceMode()
       ? `｜其中電商回推金額 ${fmtMoney(latest.ecommerceEstimatedAmount || 0)}，電商數量 ${fmtInt(latest.ecommerceQuantity || 0)}`
       : '';
     el('comparisonBox').innerHTML = `目前口徑：<strong>${modeLabel}</strong>。最新日 <strong>${latest.date}</strong> 含稅銷售額 <strong>${fmtMoney(latestAmount)}</strong>，較前一日 <strong>${prev.date}</strong> ${sign}${fmtMoney(diff)}，變動 <strong>${sign}${pct.toFixed(1)}%</strong>${ecomPart}。`;
@@ -753,11 +883,19 @@ function renderDailyTable() {
   const daily = aggregateDailyForCurrentScope();
   if (!daily.length) return setEmpty('dailyTable');
 
-  if (state.includeEcommerceInAnalysis && state.ecommerceRows.length) {
+  if (isCombinedMode()) {
     el('dailyTable').innerHTML = `
-      <caption>目前口徑：現場 + 電商。電商金額以同商品現場單價回推；若同日無現場單價，則使用該商品整段期間平均現場單價。</caption>
+      <caption>目前口徑：現場+電商。電商金額以同商品現場單價回推；若同日無現場單價，則使用該商品整段期間平均現場單價；加價購品項使用指定金額。</caption>
       <thead><tr><th>日期</th><th class="num">銷售品項數</th><th class="num">現場數量</th><th class="num">電商數量</th><th class="num">合併數量</th><th class="num">現場含稅金額</th><th class="num">電商回推金額</th><th class="num">合併含稅金額</th></tr></thead>
       <tbody>${daily.map(d => `<tr><td>${d.date}</td><td class="num">${fmtInt(d.combinedProductCount)}</td><td class="num">${fmtInt(d.onsiteQuantity)}</td><td class="num ecommerce-num">${fmtInt(d.ecommerceQuantity)}</td><td class="num"><strong>${fmtInt(d.combinedQuantity)}</strong></td><td class="num">${fmtMoney(d.onsiteAmount)}</td><td class="num ecommerce-num">${fmtMoney(d.ecommerceEstimatedAmount)}</td><td class="num"><strong>${fmtMoney(d.combinedAmount)}</strong></td></tr>`).join('')}</tbody>`;
+    return;
+  }
+
+  if (isEcommerceOnlyMode()) {
+    el('dailyTable').innerHTML = `
+      <caption>目前口徑：只看電商。電商金額以同商品現場單價回推；加價購品項使用指定金額。</caption>
+      <thead><tr><th>日期</th><th class="num">電商品項數</th><th class="num">電商數量</th><th class="num">電商回推金額</th></tr></thead>
+      <tbody>${daily.map(d => `<tr><td>${d.date}</td><td class="num">${fmtInt(d.ecommerceProductCount || d.productCount)}</td><td class="num ecommerce-num"><strong>${fmtInt(d.ecommerceQuantity)}</strong></td><td class="num ecommerce-num"><strong>${fmtMoney(d.ecommerceEstimatedAmount)}</strong></td></tr>`).join('')}</tbody>`;
     return;
   }
 
@@ -810,9 +948,16 @@ function getSortNote(sortMode, metric, dates) {
   const metricName = metric === 'quantity' ? '數量' : '含稅金額';
   const latestDate = dates[dates.length - 1] || '最新日';
   const prevDate = dates[dates.length - 2] || '前一日';
+  const mode = getViewMode();
+  const totalAmountNote = mode === 'combined'
+    ? '依整段期間「現場+電商回推」累計含稅金額由高到低排序。'
+    : (mode === 'ecommerce' ? '依整段期間「只看電商」回推金額由高到低排序。' : '依整段期間累計含稅金額由高到低排序。');
+  const totalQtyNote = mode === 'combined'
+    ? '依整段期間「現場+電商」累計數量由高到低排序。'
+    : (mode === 'ecommerce' ? '依整段期間「只看電商」累計數量由高到低排序。' : '依整段期間累計數量由高到低排序。');
   const notes = {
-    totalAmountDesc: state.includeEcommerceInAnalysis ? '依整段期間「現場 + 電商回推」累計含稅金額由高到低排序。' : '依整段期間累計含稅金額由高到低排序。',
-    totalQtyDesc: state.includeEcommerceInAnalysis ? '依整段期間「現場 + 電商」累計數量由高到低排序。' : '依整段期間累計數量由高到低排序。',
+    totalAmountDesc: totalAmountNote,
+    totalQtyDesc: totalQtyNote,
     latestMetricDesc: `依 ${latestDate} 的${metricName}由高到低排序。`,
     latestMetricAsc: `依 ${latestDate} 的${metricName}由低到高排序。`,
     diffMetricDesc: `依 ${latestDate} 相較 ${prevDate} 的${metricName}增加幅度由高到低排序。`,
@@ -833,13 +978,14 @@ function renderTrendTable() {
   const filtered = allProducts.filter(p => !keyword || `${p.productCode} ${p.product}`.toLowerCase().includes(keyword));
   const products = sortProductsForTrend(filtered, dates, metric, sortMode).slice(0, keyword ? 500 : topN);
   const dateHeaders = dates.map(d => `<th class="num">${d}</th>`).join('');
+  const mode = getViewMode();
   const totalHeader = metric === 'quantity'
-    ? (state.includeEcommerceInAnalysis ? '累計數量（現場+電商）' : '累計數量')
-    : (state.includeEcommerceInAnalysis ? '累計含稅金額（含電商回推）' : '累計含稅金額');
+    ? (mode === 'combined' ? '累計數量（現場+電商）' : (mode === 'ecommerce' ? '累計數量（只看電商）' : '累計數量'))
+    : (mode === 'combined' ? '累計含稅金額（含電商回推）' : (mode === 'ecommerce' ? '累計金額（只看電商回推）' : '累計含稅金額'));
   const sortNote = getSortNote(sortMode, metric, dates);
-  const ecommerceNote = state.includeEcommerceInAnalysis
-    ? '｜已加入電商資料：數量為現場+電商；金額以現場單價回推電商金額'
-    : '';
+  const ecommerceNote = mode === 'combined'
+    ? '｜已加入電商資料：數量為現場+電商；金額以現場單價回推電商金額，加價購使用指定金額'
+    : (mode === 'ecommerce' ? '｜目前只看電商資料：金額以現場單價回推，加價購使用指定金額' : '');
   el('trendTable').innerHTML = `
     <caption>${escapeHtml(sortNote)}${ecommerceNote}${keyword ? '｜搜尋結果最多顯示 500 筆' : `｜目前顯示 Top ${topN}`}｜點擊商品可查看單一商品趨勢</caption>
     <thead><tr><th>產品代號</th><th>產品</th>${dateHeaders}<th class="num">${totalHeader}</th></tr></thead>
@@ -848,9 +994,9 @@ function renderTrendTable() {
       const selectedClass = key === state.selectedProductKey ? ' class="selected-row"' : '';
       const cells = dates.map(d => {
         const row = (p.trendByDate || p.byDate)[d] || { quantity: 0, amount: 0, ecommerceQuantity: 0 };
-        const hasEcommerce = state.includeEcommerceInAnalysis && (row.ecommerceQuantity || 0) > 0;
+        const hasEcommerce = usesEcommerceMode() && (row.ecommerceQuantity || 0) > 0;
         const value = metric === 'quantity' ? fmtInt(row.quantity || 0) : fmtMoney(row.amount || 0);
-        const title = hasEcommerce
+        const title = hasEcommerce && mode === 'combined'
           ? ` title="現場：${metric === 'quantity' ? fmtInt(row.onsiteQuantity || 0) : fmtMoney(row.onsiteAmount || 0)}｜電商：${metric === 'quantity' ? fmtInt(row.ecommerceQuantity || 0) : fmtMoney(row.estimatedEcommerceAmount || 0)}"`
           : '';
         return `<td class="num${hasEcommerce ? ' has-ecommerce' : ''}"${title}>${value}</td>`;
@@ -923,13 +1069,14 @@ function buildProductLineChart(points, metric, options = {}) {
 
 function renderProductAnalysis() {
   const box = el('productAnalysis');
-  const products = aggregateProducts();
+  const mode = getViewMode();
+  const scopedProducts = getScopedProducts(getTrendDates());
   const mainDates = getDates();
-  const product = products.find(p => getProductKey(p) === state.selectedProductKey);
+  const product = scopedProducts.find(p => getProductKey(p) === state.selectedProductKey);
 
-  if (!state.rows.length) {
+  if (!state.rows.length && !state.ecommerceRows.length) {
     box.className = 'product-analysis empty-analysis';
-    box.textContent = '尚無資料，請先上傳 CSV。';
+    box.textContent = '尚無資料。';
     return;
   }
 
@@ -940,20 +1087,50 @@ function renderProductAnalysis() {
   }
 
   const metric = el('metricSelect').value;
+  let points = [];
+  let onsiteStatPoints = [];
+  let showEcommerce = false;
+  let hasEcommerceMatch = false;
+  let ecommerceNote = '';
+  let allDates = [];
+  let metricLabel = metric === 'quantity' ? '每日銷售數量' : '每日含稅銷售金額';
+
+  if (mode === 'ecommerce') {
+    allDates = Object.keys(product.byDate || product.trendByDate || {}).sort();
+    const range = getAnalysisDateRange(allDates);
+    const dates = range.dates;
+    points = dates.map(date => {
+      const row = (product.byDate || product.trendByDate || {})[date] || { quantity: 0, amount: 0 };
+      return {
+        date,
+        quantity: row.quantity || 0,
+        amount: row.amount || 0,
+        ecommerceQuantity: row.ecommerceQuantity ?? row.quantity ?? 0,
+        ecommerceEstimatedAmount: row.estimatedEcommerceAmount ?? row.amount ?? 0
+      };
+    });
+    onsiteStatPoints = [];
+    metricLabel = metric === 'quantity' ? '每日電商銷售數量' : '每日電商回推金額';
+    ecommerceNote = '目前口徑為只看電商；金額以同商品現場單價回推，加價購品項使用指定金額。';
+    box.className = 'product-analysis';
+    box.innerHTML = buildProductAnalysisHtml({ product, points, onsiteStatPoints, metric, metricLabel, ecommerceNote, range, mode, showEcommerce: false });
+    return;
+  }
+
   const ecommerce = aggregateEcommerceForProduct(product);
-  const hasEcommerceMatch = ecommerce.totalQty > 0 || Object.keys(ecommerce.byDate).length > 0;
-  const showEcommerce = state.includeEcommerceInAnalysis && hasEcommerceMatch;
-  const allDates = showEcommerce ? [...new Set([...mainDates, ...Object.keys(ecommerce.byDate)])].sort() : mainDates;
+  hasEcommerceMatch = ecommerce.totalQty > 0 || Object.keys(ecommerce.byDate).length > 0;
+  showEcommerce = mode === 'combined' && hasEcommerceMatch;
+  allDates = showEcommerce ? [...new Set([...mainDates, ...Object.keys(ecommerce.byDate)])].sort() : mainDates;
   const range = getAnalysisDateRange(allDates);
   const dates = range.dates;
   const mainDatesInRange = mainDates.filter(date => date >= range.start && date <= range.end);
 
-  const onsiteStatPoints = mainDatesInRange.map(date => {
+  onsiteStatPoints = mainDatesInRange.map(date => {
     const main = product.byDate[date] || { quantity: 0, amount: 0 };
     return { date, quantity: main.quantity || 0, amount: main.amount || 0 };
   });
 
-  const points = dates.map(date => {
+  points = dates.map(date => {
     const main = product.byDate[date] || { quantity: 0, amount: 0 };
     const ec = ecommerce.byDate[date] || { quantity: 0, regularQuantity: 0, addonAmount: 0 };
     const estimatedUnitPrice = estimateOnsiteUnitPrice(product, date);
@@ -971,26 +1148,57 @@ function renderProductAnalysis() {
     };
   });
 
+  metricLabel = showEcommerce ? '現場 vs 電商銷售數量' : (metric === 'quantity' ? '每日銷售數量' : '每日含稅銷售金額');
+  ecommerceNote = mode === 'combined'
+    ? (hasEcommerceMatch ? `已加入電商資料；現場統計卡片維持只計算現場資料。電商端匹配到：${ecommerce.matchedProducts.map(escapeHtml).join('、') || escapeHtml(product.product)}。` : '已開啟現場+電商，但這個商品在電商報表中沒有匹配資料。')
+    : '目前口徑為只看現場。';
+
+  box.className = 'product-analysis';
+  box.innerHTML = buildProductAnalysisHtml({ product, points, onsiteStatPoints, metric, metricLabel, ecommerceNote, range, mode, showEcommerce });
+}
+
+function buildProductAnalysisHtml({ product, points, onsiteStatPoints, metric, metricLabel, ecommerceNote, range, mode, showEcommerce }) {
   const qtyValues = onsiteStatPoints.map(p => p.quantity);
   const amountValues = onsiteStatPoints.map(p => p.amount);
-  const ecommerceQtyValues = points.map(p => p.ecommerceQuantity);
-  const ecommerceAmountValues = points.map(p => p.ecommerceEstimatedAmount);
-  const combinedQtyValues = points.map(p => p.combinedQuantity);
-  const combinedAmountValues = points.map(p => p.combinedAmount);
-  const metricLabel = showEcommerce ? '現場 vs 電商銷售數量' : (metric === 'quantity' ? '每日銷售數量' : '每日含稅銷售金額');
-  const ecommerceNote = state.includeEcommerceInAnalysis
-    ? (hasEcommerceMatch ? `已加入電商資料；現場統計卡片維持只計算現場資料。電商端匹配到：${ecommerce.matchedProducts.map(escapeHtml).join('、') || escapeHtml(product.product)}。` : '已開啟加入電商資料，但這個商品在電商報表中沒有匹配資料。')
-    : '目前未加入電商資料。';
+  const ecommerceQtyValues = points.map(p => p.ecommerceQuantity || 0);
+  const ecommerceAmountValues = points.map(p => p.ecommerceEstimatedAmount || 0);
+  const combinedQtyValues = points.map(p => p.combinedQuantity || 0);
+  const combinedAmountValues = points.map(p => p.combinedAmount || 0);
   const rangeNote = range.hasCustomRange
     ? `目前分析區間：${escapeHtml(range.start)} ～ ${escapeHtml(range.end)}`
     : `目前分析區間：全部日期（${escapeHtml(range.min)} ～ ${escapeHtml(range.max)}）`;
 
-  box.className = 'product-analysis';
-  box.innerHTML = `
+  const kpiCards = mode === 'ecommerce'
+    ? `
+      <div class="analysis-card ecommerce-card"><span>平均每日電商銷售數量</span><strong>${fmtInt(average(ecommerceQtyValues))}</strong></div>
+      <div class="analysis-card ecommerce-card"><span>平均每日電商回推金額</span><strong>${fmtMoney(average(ecommerceAmountValues))}</strong></div>
+      <div class="analysis-card ecommerce-card"><span>中位數電商銷售數量</span><strong>${fmtInt(median(ecommerceQtyValues))}</strong></div>
+      <div class="analysis-card ecommerce-card"><span>中位數電商回推金額</span><strong>${fmtMoney(median(ecommerceAmountValues))}</strong></div>
+      <div class="analysis-card ecommerce-card"><span>電商回推總金額</span><strong>${fmtMoney(ecommerceAmountValues.reduce((sum, n) => sum + n, 0))}</strong></div>`
+    : `
+      <div class="analysis-card"><span>平均每日現場銷售數量</span><strong>${fmtInt(average(qtyValues))}</strong></div>
+      <div class="analysis-card"><span>平均每日現場銷售金額</span><strong>${fmtMoney(average(amountValues))}</strong></div>
+      <div class="analysis-card"><span>中位數現場銷售數量</span><strong>${fmtInt(median(qtyValues))}</strong></div>
+      <div class="analysis-card"><span>中位數現場銷售金額</span><strong>${fmtMoney(median(amountValues))}</strong></div>
+      ${showEcommerce ? `
+        <div class="analysis-card ecommerce-card"><span>平均每日電商銷售數量</span><strong>${fmtInt(average(ecommerceQtyValues))}</strong></div>
+        <div class="analysis-card ecommerce-card"><span>中位數電商銷售數量</span><strong>${fmtInt(median(ecommerceQtyValues))}</strong></div>
+        <div class="analysis-card ecommerce-card"><span>平均每日合併銷售數量</span><strong>${fmtInt(average(combinedQtyValues))}</strong></div>
+        <div class="analysis-card ecommerce-card"><span>平均每日合併回推金額</span><strong>${fmtMoney(average(combinedAmountValues))}</strong></div>
+        <div class="analysis-card ecommerce-card"><span>電商回推總金額</span><strong>${fmtMoney(ecommerceAmountValues.reduce((sum, n) => sum + n, 0))}</strong></div>` : ''}`;
+
+  const tableHead = mode === 'ecommerce'
+    ? '<thead><tr><th>日期</th><th class="num">電商銷售數量</th><th class="num">電商回推金額</th></tr></thead>'
+    : `<thead><tr><th>日期</th><th class="num">現場銷售數量</th><th class="num">現場含稅銷售金額</th>${showEcommerce ? '<th class="num">電商銷售數量</th><th class="num">電商回推金額</th><th class="num">合併銷售數量</th><th class="num">合併回推金額</th>' : ''}</tr></thead>`;
+  const tableBody = mode === 'ecommerce'
+    ? `<tbody>${points.length ? points.map(p => `<tr><td>${p.date}</td><td class="num ecommerce-num">${fmtInt(p.ecommerceQuantity || p.quantity || 0)}</td><td class="num ecommerce-num">${fmtMoney(p.ecommerceEstimatedAmount || p.amount || 0)}</td></tr>`).join('') : '<tr><td colspan="3" class="empty-cell">此日期區間沒有資料</td></tr>'}</tbody>`
+    : `<tbody>${points.length ? points.map(p => `<tr><td>${p.date}</td><td class="num">${fmtInt(p.quantity)}</td><td class="num">${fmtMoney(p.amount)}</td>${showEcommerce ? `<td class="num ecommerce-num">${fmtInt(p.ecommerceQuantity)}</td><td class="num ecommerce-num">${fmtMoney(p.ecommerceEstimatedAmount)}</td><td class="num"><strong>${fmtInt(p.combinedQuantity)}</strong></td><td class="num"><strong>${fmtMoney(p.combinedAmount)}</strong></td>` : ''}</tr>`).join('') : `<tr><td colspan="${showEcommerce ? 7 : 3}" class="empty-cell">此日期區間沒有資料</td></tr>`}</tbody>`;
+
+  return `
     <div class="analysis-head">
       <div>
         <h3>${escapeHtml(product.product || '未命名商品')}</h3>
-        <p>產品代號：${escapeHtml(product.productCode || '-')}｜${rangeNote}${showEcommerce ? `｜含電商資料` : ''}</p>
+        <p>產品代號：${escapeHtml(product.productCode || '-')}｜${rangeNote}${mode === 'combined' ? '｜含電商資料' : (mode === 'ecommerce' ? '｜只看電商' : '')}</p>
         <p class="analysis-note">${ecommerceNote}</p>
       </div>
       <div class="analysis-badge">曲線指標：${metricLabel}</div>
@@ -1006,28 +1214,14 @@ function renderProductAnalysis() {
       </div>
       <button id="resetAnalysisRangeBtn" class="secondary small-btn" type="button">重設全部日期</button>
     </div>
-    <div class="analysis-kpis">
-      <div class="analysis-card"><span>平均每日現場銷售數量</span><strong>${fmtInt(average(qtyValues))}</strong></div>
-      <div class="analysis-card"><span>平均每日現場銷售金額</span><strong>${fmtMoney(average(amountValues))}</strong></div>
-      <div class="analysis-card"><span>中位數現場銷售數量</span><strong>${fmtInt(median(qtyValues))}</strong></div>
-      <div class="analysis-card"><span>中位數現場銷售金額</span><strong>${fmtMoney(median(amountValues))}</strong></div>
-      ${showEcommerce ? `
-        <div class="analysis-card ecommerce-card"><span>平均每日電商銷售數量</span><strong>${fmtInt(average(ecommerceQtyValues))}</strong></div>
-        <div class="analysis-card ecommerce-card"><span>中位數電商銷售數量</span><strong>${fmtInt(median(ecommerceQtyValues))}</strong></div>
-        <div class="analysis-card ecommerce-card"><span>平均每日合併銷售數量</span><strong>${fmtInt(average(combinedQtyValues))}</strong></div>
-        <div class="analysis-card ecommerce-card"><span>平均每日合併回推金額</span><strong>${fmtMoney(average(combinedAmountValues))}</strong></div>
-        <div class="analysis-card ecommerce-card"><span>電商回推總金額</span><strong>${fmtMoney(ecommerceAmountValues.reduce((sum, n) => sum + n, 0))}</strong></div>` : ''}
-    </div>
+    <div class="analysis-kpis">${kpiCards}</div>
     <div class="chart-box">
       <p class="chart-title">${metricLabel}曲線圖${showEcommerce ? '｜藍線：現場數量，紅線：電商數量' : ''}</p>
       ${points.length ? buildProductLineChart(points, metric, { showEcommerce }) : '<div class="empty-range-message">此日期區間沒有可分析資料。</div>'}
     </div>
     <div class="analysis-detail-table">
       <div class="table-wrap">
-        <table>
-          <thead><tr><th>日期</th><th class="num">現場銷售數量</th><th class="num">現場含稅銷售金額</th>${showEcommerce ? '<th class="num">電商銷售數量</th><th class="num">電商回推金額</th><th class="num">合併銷售數量</th><th class="num">合併回推金額</th>' : ''}</tr></thead>
-          <tbody>${points.length ? points.map(p => `<tr><td>${p.date}</td><td class="num">${fmtInt(p.quantity)}</td><td class="num">${fmtMoney(p.amount)}</td>${showEcommerce ? `<td class="num ecommerce-num">${fmtInt(p.ecommerceQuantity)}</td><td class="num ecommerce-num">${fmtMoney(p.ecommerceEstimatedAmount)}</td><td class="num"><strong>${fmtInt(p.combinedQuantity)}</strong></td><td class="num"><strong>${fmtMoney(p.combinedAmount)}</strong></td>` : ''}</tr>`).join('') : `<tr><td colspan="${showEcommerce ? 7 : 3}" class="empty-cell">此日期區間沒有資料</td></tr>`}</tbody>
-        </table>
+        <table>${tableHead}${tableBody}</table>
       </div>
     </div>`;
 }
@@ -1070,7 +1264,7 @@ function exportRows() {
 
 function exportDaily() {
   const rows = aggregateDailyForCurrentScope();
-  if (state.includeEcommerceInAnalysis && state.ecommerceRows.length) {
+  if (isCombinedMode()) {
     const headers = [
       {label:'日期', value:'date'}, {label:'銷售品項數', value:'combinedProductCount'}, {label:'現場數量', value:'onsiteQuantity'},
       {label:'電商數量', value:'ecommerceQuantity'}, {label:'合併數量', value:'combinedQuantity'}, {label:'現場含稅金額', value:'onsiteAmount'},
@@ -1079,12 +1273,21 @@ function exportDaily() {
     downloadCSV('每日銷售彙總_現場加電商.csv', toCSV(rows, headers));
     return;
   }
+  if (isEcommerceOnlyMode()) {
+    const headers = [
+      {label:'日期', value:'date'}, {label:'電商品項數', value:'ecommerceProductCount'},
+      {label:'電商數量', value:'ecommerceQuantity'}, {label:'電商回推金額', value:'ecommerceEstimatedAmount'}
+    ];
+    downloadCSV('每日銷售彙總_只看電商.csv', toCSV(rows, headers));
+    return;
+  }
   const headers = [
     {label:'日期', value:'date'}, {label:'銷售品項數', value:'productCount'}, {label:'銷售總數量', value:'quantity'},
     {label:'未稅金額', value:'untaxed'}, {label:'含稅銷售額', value:'amount'}
   ];
   downloadCSV('每日銷售彙總.csv', toCSV(rows, headers));
 }
+
 
 const csvInputEl = el('csvInput');
 if (csvInputEl) csvInputEl.addEventListener('change', e => handleFiles([...e.target.files]));
@@ -1096,7 +1299,7 @@ const loadEcommerceBtnEl = el('loadEcommerceBtn');
 if (loadEcommerceBtnEl) loadEcommerceBtnEl.addEventListener('click', loadEcommerceDataFolder);
 
 el('toggleEcommerceBtn').addEventListener('click', () => {
-  state.includeEcommerceInAnalysis = !state.includeEcommerceInAnalysis;
+  cycleViewMode();
   renderAll();
 });
 el('loadDataBtn').addEventListener('click', async () => {
