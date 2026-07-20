@@ -1,4 +1,4 @@
-GitHub Pages data 自動讀取使用說明
+GitHub Pages data 自動讀取使用說明.
 
 1. 建議資料夾結構：
 
