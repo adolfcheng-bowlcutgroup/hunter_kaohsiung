@@ -2,6 +2,7 @@ const DATA_MANIFEST_PATH = 'data/manifest.json';
 const ECOMMERCE_DATA_PATH = 'data/ecommerce_sales.csv';
 const EXCLUDED_PRODUCTS_PATH = 'data/excluded_products.json';
 const ECOMMERCE_ADDON_PRICES_PATH = 'data/ecommerce_addon_prices.json';
+const ECOMMERCE_QUANTITY_MULTIPLIERS_PATH = 'data/ecommerce_quantity_multipliers.json';
 
 const state = {
   rows: [],
@@ -12,6 +13,8 @@ const state = {
   exclusionSource: 'none',
   ecommerceAddonPriceRules: [],
   ecommerceAddonPriceSource: 'none',
+  ecommerceQuantityMultiplierRules: [],
+  ecommerceQuantityMultiplierSource: 'none',
   viewMode: 'onsite',
   includeEcommerceInAnalysis: false,
   selectedProductKey: '',
@@ -225,6 +228,53 @@ async function loadEcommerceAddonPrices() {
     console.info(`未讀取到 ${ECOMMERCE_ADDON_PRICES_PATH}，電商金額維持現場單價回推。`);
     return [];
   }
+}
+
+function normalizeEcommerceQuantityMultiplierRules(config) {
+  const sourceItems = Array.isArray(config) ? config : (Array.isArray(config?.items) ? config.items : []);
+  return sourceItems.map(item => {
+    const multiplier = cleanNumber(item.multiplier);
+    return {
+      rowNo: Number(item.rowNo) || null,
+      productCode: normalizeProductCode(item.productCode),
+      product: String(item.product || '').trim(),
+      productContains: String(item.productContains || '').trim(),
+      multiplier,
+      note: String(item.note || '').trim()
+    };
+  }).filter(item => item.multiplier > 0 && item.multiplier !== 1 && (item.productCode || item.product || item.productContains || item.rowNo));
+}
+
+async function loadEcommerceQuantityMultipliers() {
+  try {
+    const text = await fetchTextNoCache(ECOMMERCE_QUANTITY_MULTIPLIERS_PATH);
+    const config = JSON.parse(text);
+    const rules = normalizeEcommerceQuantityMultiplierRules(config);
+    state.ecommerceQuantityMultiplierRules = rules;
+    state.ecommerceQuantityMultiplierSource = 'data';
+    console.info(`已載入電商數量換算規則 ${rules.length} 項`, rules);
+    return rules;
+  } catch (error) {
+    state.ecommerceQuantityMultiplierRules = [];
+    state.ecommerceQuantityMultiplierSource = 'none';
+    console.info(`未讀取到 ${ECOMMERCE_QUANTITY_MULTIPLIERS_PATH}，電商數量維持原始報表數值。`);
+    return [];
+  }
+}
+
+function getEcommerceQuantityMultiplierRule(row) {
+  if (!row || !state.ecommerceQuantityMultiplierRules.length) return null;
+  const code = normalizeProductCode(row.productCode);
+  const product = String(row.product || '').trim();
+  const rowNo = Number(row.rowNo) || null;
+
+  return state.ecommerceQuantityMultiplierRules.find(rule => {
+    if (rule.rowNo && rowNo && rule.rowNo !== rowNo) return false;
+    if (rule.productCode && code && rule.productCode !== code) return false;
+    if (rule.product && product && rule.product !== product) return false;
+    if (rule.productContains && product && !product.includes(rule.productContains)) return false;
+    return true;
+  }) || null;
 }
 
 function getEcommerceAddonRule(row) {
@@ -442,14 +492,25 @@ function normalizeEcommerceRows(parsed, filename) {
     dateColumns.forEach(col => {
       const raw = String(r[col.index] ?? '').trim();
       if (raw === '') return;
+      const originalQuantity = cleanNumber(raw);
       const row = {
         date: col.date,
         sourceFile: filename,
         rowNo: rowIndex + 2,
         productCode,
         product,
-        quantity: cleanNumber(raw)
+        rawQuantity: originalQuantity,
+        quantity: originalQuantity,
+        quantityMultiplier: 1,
+        quantityMultiplierApplied: false
       };
+      const multiplierRule = getEcommerceQuantityMultiplierRule(row);
+      if (multiplierRule) {
+        row.quantityMultiplier = multiplierRule.multiplier;
+        row.quantity = originalQuantity * multiplierRule.multiplier;
+        row.quantityMultiplierApplied = true;
+        row.quantityMultiplierNote = multiplierRule.note || '';
+      }
       const addonRule = getEcommerceAddonRule(row);
       if (addonRule) {
         row.addonUnitPrice = addonRule.unitPrice;
@@ -1312,6 +1373,7 @@ el('toggleEcommerceBtn').addEventListener('click', () => {
 el('loadDataBtn').addEventListener('click', async () => {
   await loadProductExclusions();
   await loadEcommerceAddonPrices();
+  await loadEcommerceQuantityMultipliers();
   await loadDataFolder();
   await loadEcommerceDataFolder();
 });
@@ -1346,7 +1408,7 @@ el('trendTable').addEventListener('click', event => {
 el('exportRowsBtn').addEventListener('click', exportRows);
 el('exportDailyBtn').addEventListener('click', exportDaily);
 renderAll();
-Promise.all([loadProductExclusions(), loadEcommerceAddonPrices()]).then(() => {
+Promise.all([loadProductExclusions(), loadEcommerceAddonPrices(), loadEcommerceQuantityMultipliers()]).then(() => {
   loadDataFolder();
   loadEcommerceDataFolder();
 });
