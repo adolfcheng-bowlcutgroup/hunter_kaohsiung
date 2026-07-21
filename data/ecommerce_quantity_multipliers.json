@@ -1,0 +1,19 @@
+{
+  "description": "電商銷售報表中的特殊銷售單位換算設定。當 ecommerce_sales.csv 的品項符合規則時，報表數值會先乘上 multiplier，換算成實際商品數量後才進入統計。",
+  "items": [
+    {
+      "rowNo": 19,
+      "productCode": "HUKHB02525",
+      "product": "獵人貪婪之島-貪婪之島卡片包(5張一包，隨機出貨) ※最低購買量為5包",
+      "multiplier": 5,
+      "note": "最低購買量為5包；報表每 1 單位代表 5 個 HUKHB02525。"
+    },
+    {
+      "rowNo": 44,
+      "productCode": "HUKHB02425",
+      "product": "【預購】獵人貪婪之島-卡片鑰匙圈(30款隨機出貨)※兩個一組",
+      "multiplier": 2,
+      "note": "兩個一組；報表每 1 單位代表 2 個 HUKHB02425。"
+    }
+  ]
+}
