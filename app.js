@@ -996,22 +996,7 @@ function aggregateEcommerceTrendLines(dates = getEcommerceDates()) {
 
 function getTrendTableProducts(dates = getTrendDates()) {
   if (isEcommerceOnlyMode()) return aggregateEcommerceTrendLines(dates);
-  if (isCombinedMode()) {
-    const onsiteLines = aggregateProducts().map(p => ({
-      ...p,
-      trendByDate: p.byDate,
-      trendTotalQty: p.totalQty,
-      trendTotalAmount: p.totalAmount,
-      ecommerceTotalQty: 0,
-      ecommerceEstimatedAmount: 0,
-      isOnsiteLineProduct: true,
-      analysisProductKey: getProductKey(p),
-      analysisProductCode: p.productCode || '',
-      analysisProductName: p.product || ''
-    }));
-    const ecommerceLines = aggregateEcommerceTrendLines(dates);
-    return [...onsiteLines, ...ecommerceLines];
-  }
+  if (isCombinedMode()) return getScopedProducts(dates);
   return aggregateProducts();
 }
 
@@ -1302,10 +1287,10 @@ function getSortNote(sortMode, metric, dates) {
   const prevDate = dates[dates.length - 2] || '前一日';
   const mode = getViewMode();
   const totalAmountNote = mode === 'combined'
-    ? '依整段期間「現場/電商分列」累計金額由高到低排序。'
+    ? '依整段期間「現場+電商整併」累計金額由高到低排序。'
     : (mode === 'ecommerce' ? '依整段期間「只看電商」逐列金額由高到低排序。' : '依整段期間累計含稅金額由高到低排序。');
   const totalQtyNote = mode === 'combined'
-    ? '依整段期間「現場/電商分列」累計數量由高到低排序。'
+    ? '依整段期間「現場+電商整併」累計數量由高到低排序。'
     : (mode === 'ecommerce' ? '依整段期間「只看電商」逐列數量由高到低排序。' : '依整段期間累計數量由高到低排序。');
   const notes = {
     totalAmountDesc: totalAmountNote,
@@ -1332,11 +1317,11 @@ function renderTrendTable() {
   const dateHeaders = dates.map(d => `<th class="num">${d}</th>`).join('');
   const mode = getViewMode();
   const totalHeader = metric === 'quantity'
-    ? (mode === 'combined' ? '累計數量（現場/電商分列）' : (mode === 'ecommerce' ? '累計數量（只看電商）' : '累計數量'))
-    : (mode === 'combined' ? '累計金額（現場/電商分列）' : (mode === 'ecommerce' ? '累計金額（只看電商）' : '累計含稅金額'));
+    ? (mode === 'combined' ? '累計數量（現場+電商）' : (mode === 'ecommerce' ? '累計數量（只看電商）' : '累計數量'))
+    : (mode === 'combined' ? '累計金額（現場+電商）' : (mode === 'ecommerce' ? '累計金額（只看電商）' : '累計含稅金額'));
   const sortNote = getSortNote(sortMode, metric, dates);
   const ecommerceNote = mode === 'combined'
-    ? '｜已加入電商資料：商品趨勢表以現場列與電商報表列分開顯示；單一商品分析會依產品代號整併'
+    ? '｜已加入電商資料：商品趨勢表依產品代號整併；有電商銷售的日期欄位會以淡紅底標示'
     : (mode === 'ecommerce' ? '｜目前只看電商資料：商品趨勢表維持 ecommerce_sales.csv 的逐列框架；單一商品分析會依產品代號整併' : '');
   el('trendTable').innerHTML = `
     <caption>${escapeHtml(sortNote)}${ecommerceNote}${keyword ? '｜搜尋結果最多顯示 500 筆' : `｜目前顯示 Top ${topN}`}｜點擊商品可查看單一商品趨勢</caption>
