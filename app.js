@@ -21,6 +21,8 @@ const state = {
   viewMode: 'onsite',
   includeEcommerceInAnalysis: false,
   selectedProductKey: '',
+  selectedProductCode: '',
+  selectedProductName: '',
   productAnalysisStartDate: '',
   productAnalysisEndDate: '',
   dataSource: 'none'
@@ -362,10 +364,19 @@ function makeEcommerceRowFromRule(baseRow, originalQuantity, rule, split = null)
   const quantity = quantityMode === 'exclude' ? 0 : originalQuantity * quantityMultiplier;
   const ecommerceAmount = amountMode === 'priced' ? originalQuantity * unitPrice : 0;
 
+  const finalProductCode = effective.productCode || baseRow.productCode;
+  const finalProduct = effective.product || baseRow.product;
   return {
     ...baseRow,
-    productCode: effective.productCode || baseRow.productCode,
-    product: effective.product || baseRow.product,
+    productCode: finalProductCode,
+    product: finalProduct,
+    ecommerceSourceRowNo: baseRow.rowNo,
+    ecommerceSourceProductCode: baseRow.productCode,
+    ecommerceSourceProduct: baseRow.product,
+    ecommerceDisplayProductCode: baseRow.productCode,
+    ecommerceDisplayProduct: baseRow.product,
+    isSplitGenerated: Boolean(split),
+    isSourceLineDisplay: !split || (String(finalProductCode || '').trim() === String(baseRow.productCode || '').trim() && String(finalProduct || '').trim() === String(baseRow.product || '').trim()),
     quantity,
     amountQuantityMultiplier: 1,
     amountQuantity: originalQuantity,
@@ -490,6 +501,8 @@ async function loadDataFolder() {
       state.rows = [];
       state.files = [];
       state.selectedProductKey = '';
+      state.selectedProductCode = '';
+      state.selectedProductName = '';
       state.dataSource = 'data';
       renderAll();
       setDataStatus('已讀取 manifest，但沒有可用檔案。請檢查 <code>data/manifest.json</code> 的 files 清單。', 'warning');
@@ -519,6 +532,8 @@ async function loadDataFolder() {
     state.rows = loadedRows;
     state.files = loadedFiles;
     state.selectedProductKey = '';
+    state.selectedProductCode = '';
+    state.selectedProductName = '';
     state.dataSource = 'data';
     sortRows();
     renderAll();
@@ -590,6 +605,13 @@ function normalizeEcommerceRows(parsed, filename) {
         rowNo: rowIndex + 2,
         productCode,
         product,
+        ecommerceSourceRowNo: rowIndex + 2,
+        ecommerceSourceProductCode: productCode,
+        ecommerceSourceProduct: product,
+        ecommerceDisplayProductCode: productCode,
+        ecommerceDisplayProduct: product,
+        isSplitGenerated: false,
+        isSourceLineDisplay: true,
         rawQuantity: originalQuantity,
         quantity: originalQuantity,
         amountQuantityMultiplier: 1,
@@ -886,6 +908,126 @@ function estimateEcommerceRowAmount(row, date, onsiteProducts = aggregateProduct
   return { unitPrice, amount: amountQuantity * unitPrice };
 }
 
+
+function isEcommerceRowVisibleInTrendTable(row) {
+  if (!row) return false;
+  if (row.isSplitGenerated && !row.isSourceLineDisplay) return false;
+  return true;
+}
+
+function aggregateEcommerceTrendLines(dates = getEcommerceDates()) {
+  const onsiteProducts = aggregateProducts();
+  const analysisProducts = aggregateEcommerceProducts(dates);
+  const map = new Map();
+
+  state.ecommerceRows.filter(isEcommerceRowVisibleInTrendTable).forEach(r => {
+    const sourceRowNo = r.ecommerceSourceRowNo || r.rowNo || '';
+    const displayCode = r.ecommerceDisplayProductCode ?? r.productCode ?? '';
+    const displayProduct = r.ecommerceDisplayProduct ?? r.product ?? '';
+    const key = `${sourceRowNo}||${displayCode}||${displayProduct}`;
+
+    if (!map.has(key)) {
+      const analysisProduct = analysisProducts.find(p => {
+        const pCode = String(p.productCode || '').trim();
+        const pName = String(p.product || '').trim();
+        const rCode = String(r.productCode || '').trim();
+        const rName = String(r.product || '').trim();
+        if (rCode && pCode && rCode === pCode) return true;
+        return rName && pName && rName === pName;
+      });
+
+      map.set(key, {
+        productCode: displayCode,
+        product: displayProduct,
+        ecommerceSourceRowNo: sourceRowNo,
+        totalQty: 0,
+        totalAmount: 0,
+        trendTotalQty: 0,
+        trendTotalAmount: 0,
+        ecommerceTotalQty: 0,
+        ecommerceEstimatedAmount: 0,
+        byDate: {},
+        trendByDate: {},
+        dates,
+        isEcommerceLineProduct: true,
+        analysisProductKey: analysisProduct ? getProductKey(analysisProduct) : getProductKey({ productCode: r.productCode, product: r.product }),
+        analysisProductCode: r.productCode || displayCode || '',
+        analysisProductName: r.product || displayProduct || ''
+      });
+    }
+
+    const item = map.get(key);
+    const estimated = estimateEcommerceRowAmount(r, r.date, onsiteProducts);
+    if (!item.byDate[r.date]) {
+      item.byDate[r.date] = {
+        quantity: 0,
+        amount: 0,
+        onsiteQuantity: 0,
+        onsiteAmount: 0,
+        ecommerceQuantity: 0,
+        estimatedEcommerceAmount: 0,
+        estimatedUnitPrice: estimated.unitPrice || 0
+      };
+    }
+
+    const day = item.byDate[r.date];
+    day.quantity += r.quantity || 0;
+    day.amount += estimated.amount || 0;
+    day.ecommerceQuantity += r.quantity || 0;
+    day.estimatedEcommerceAmount += estimated.amount || 0;
+    day.estimatedUnitPrice = estimated.unitPrice || day.estimatedUnitPrice || 0;
+
+    item.totalQty += r.quantity || 0;
+    item.totalAmount += estimated.amount || 0;
+    item.trendTotalQty += r.quantity || 0;
+    item.trendTotalAmount += estimated.amount || 0;
+    item.ecommerceTotalQty += r.quantity || 0;
+    item.ecommerceEstimatedAmount += estimated.amount || 0;
+  });
+
+  return [...map.values()].map(item => {
+    dates.forEach(date => {
+      const row = item.byDate[date] || { quantity: 0, amount: 0, onsiteQuantity: 0, onsiteAmount: 0, ecommerceQuantity: 0, estimatedEcommerceAmount: 0 };
+      item.trendByDate[date] = row;
+    });
+    return item;
+  }).sort((a, b) => Number(a.ecommerceSourceRowNo || 0) - Number(b.ecommerceSourceRowNo || 0));
+}
+
+function getTrendTableProducts(dates = getTrendDates()) {
+  if (isEcommerceOnlyMode()) return aggregateEcommerceTrendLines(dates);
+  if (isCombinedMode()) {
+    const onsiteLines = aggregateProducts().map(p => ({
+      ...p,
+      trendByDate: p.byDate,
+      trendTotalQty: p.totalQty,
+      trendTotalAmount: p.totalAmount,
+      ecommerceTotalQty: 0,
+      ecommerceEstimatedAmount: 0,
+      isOnsiteLineProduct: true,
+      analysisProductKey: getProductKey(p),
+      analysisProductCode: p.productCode || '',
+      analysisProductName: p.product || ''
+    }));
+    const ecommerceLines = aggregateEcommerceTrendLines(dates);
+    return [...onsiteLines, ...ecommerceLines];
+  }
+  return aggregateProducts();
+}
+
+function findSelectedAnalysisProduct(scopedProducts) {
+  let product = scopedProducts.find(p => getProductKey(p) === state.selectedProductKey);
+  const selectedCode = String(state.selectedProductCode || '').trim();
+  const selectedName = String(state.selectedProductName || '').trim();
+  if (!product && selectedCode) {
+    product = scopedProducts.find(p => String(p.productCode || '').trim() === selectedCode);
+  }
+  if (!product && selectedName) {
+    product = scopedProducts.find(p => String(p.product || '').trim() === selectedName);
+  }
+  return product;
+}
+
 function aggregateEcommerceProducts(dates = getEcommerceDates()) {
   const onsiteProducts = aggregateProducts();
   const map = new Map();
@@ -1160,11 +1302,11 @@ function getSortNote(sortMode, metric, dates) {
   const prevDate = dates[dates.length - 2] || '前一日';
   const mode = getViewMode();
   const totalAmountNote = mode === 'combined'
-    ? '依整段期間「現場+電商回推」累計含稅金額由高到低排序。'
-    : (mode === 'ecommerce' ? '依整段期間「只看電商」回推金額由高到低排序。' : '依整段期間累計含稅金額由高到低排序。');
+    ? '依整段期間「現場/電商分列」累計金額由高到低排序。'
+    : (mode === 'ecommerce' ? '依整段期間「只看電商」逐列金額由高到低排序。' : '依整段期間累計含稅金額由高到低排序。');
   const totalQtyNote = mode === 'combined'
-    ? '依整段期間「現場+電商」累計數量由高到低排序。'
-    : (mode === 'ecommerce' ? '依整段期間「只看電商」累計數量由高到低排序。' : '依整段期間累計數量由高到低排序。');
+    ? '依整段期間「現場/電商分列」累計數量由高到低排序。'
+    : (mode === 'ecommerce' ? '依整段期間「只看電商」逐列數量由高到低排序。' : '依整段期間累計數量由高到低排序。');
   const notes = {
     totalAmountDesc: totalAmountNote,
     totalQtyDesc: totalQtyNote,
@@ -1179,7 +1321,7 @@ function getSortNote(sortMode, metric, dates) {
 
 function renderTrendTable() {
   const dates = getTrendDates();
-  const allProducts = getScopedProducts(dates);
+  const allProducts = getTrendTableProducts(dates);
   if (!allProducts.length) return setEmpty('trendTable');
   const keyword = el('searchInput').value.trim().toLowerCase();
   const metric = el('metricSelect').value;
@@ -1190,18 +1332,23 @@ function renderTrendTable() {
   const dateHeaders = dates.map(d => `<th class="num">${d}</th>`).join('');
   const mode = getViewMode();
   const totalHeader = metric === 'quantity'
-    ? (mode === 'combined' ? '累計數量（現場+電商）' : (mode === 'ecommerce' ? '累計數量（只看電商）' : '累計數量'))
-    : (mode === 'combined' ? '累計含稅金額（含電商回推）' : (mode === 'ecommerce' ? '累計金額（只看電商回推）' : '累計含稅金額'));
+    ? (mode === 'combined' ? '累計數量（現場/電商分列）' : (mode === 'ecommerce' ? '累計數量（只看電商）' : '累計數量'))
+    : (mode === 'combined' ? '累計金額（現場/電商分列）' : (mode === 'ecommerce' ? '累計金額（只看電商）' : '累計含稅金額'));
   const sortNote = getSortNote(sortMode, metric, dates);
   const ecommerceNote = mode === 'combined'
-    ? '｜已加入電商資料：數量為現場+電商；金額以現場單價回推電商金額，加價購使用指定金額'
-    : (mode === 'ecommerce' ? '｜目前只看電商資料：金額以現場單價回推，加價購使用指定金額' : '');
+    ? '｜已加入電商資料：商品趨勢表以現場列與電商報表列分開顯示；單一商品分析會依產品代號整併'
+    : (mode === 'ecommerce' ? '｜目前只看電商資料：商品趨勢表維持 ecommerce_sales.csv 的逐列框架；單一商品分析會依產品代號整併' : '');
   el('trendTable').innerHTML = `
     <caption>${escapeHtml(sortNote)}${ecommerceNote}${keyword ? '｜搜尋結果最多顯示 500 筆' : `｜目前顯示 Top ${topN}`}｜點擊商品可查看單一商品趨勢</caption>
     <thead><tr><th>產品代號</th><th>產品</th>${dateHeaders}<th class="num">${totalHeader}</th></tr></thead>
     <tbody>${products.map(p => {
-      const key = getProductKey(p);
-      const selectedClass = key === state.selectedProductKey ? ' class="selected-row"' : '';
+      const key = p.analysisProductKey || getProductKey(p);
+      const selectedCode = String(state.selectedProductCode || '').trim();
+      const selectedName = String(state.selectedProductName || '').trim();
+      const rowCode = String(p.analysisProductCode || p.productCode || '').trim();
+      const rowName = String(p.analysisProductName || p.product || '').trim();
+      const isSelected = key === state.selectedProductKey || (selectedCode && rowCode && selectedCode === rowCode) || (!selectedCode && selectedName && rowName && selectedName === rowName);
+      const selectedClass = isSelected ? ' class="selected-row"' : '';
       const cells = dates.map(d => {
         const row = (p.trendByDate || p.byDate)[d] || { quantity: 0, amount: 0, ecommerceQuantity: 0 };
         const hasEcommerce = usesEcommerceMode() && (row.ecommerceQuantity || 0) > 0;
@@ -1212,7 +1359,7 @@ function renderTrendTable() {
         return `<td class="num${hasEcommerce ? ' has-ecommerce' : ''}"${title}>${value}</td>`;
       }).join('');
       const total = metric === 'quantity' ? (p.trendTotalQty ?? p.totalQty) : (p.trendTotalAmount ?? p.totalAmount);
-      return `<tr${selectedClass} data-product-key="${escapeHtml(key)}"><td>${escapeHtml(p.productCode)}</td><td>${escapeHtml(p.product)}</td>${cells}<td class="num"><strong>${metric === 'quantity' ? fmtInt(total) : fmtMoney(total)}</strong></td></tr>`;
+      return `<tr${selectedClass} data-product-key="${escapeHtml(key)}" data-product-code="${escapeHtml(p.analysisProductCode || p.productCode || '')}" data-product-name="${escapeHtml(p.analysisProductName || p.product || '')}"><td>${escapeHtml(p.productCode)}</td><td>${escapeHtml(p.product)}</td>${cells}<td class="num"><strong>${metric === 'quantity' ? fmtInt(total) : fmtMoney(total)}</strong></td></tr>`;
     }).join('')}</tbody>`;
 }
 
@@ -1282,7 +1429,7 @@ function renderProductAnalysis() {
   const mode = getViewMode();
   const scopedProducts = getScopedProducts(getTrendDates());
   const mainDates = getDates();
-  const product = scopedProducts.find(p => getProductKey(p) === state.selectedProductKey);
+  const product = findSelectedAnalysisProduct(scopedProducts);
 
   if (!state.rows.length && !state.ecommerceRows.length) {
     box.className = 'product-analysis empty-analysis';
@@ -1543,6 +1690,8 @@ el('trendTable').addEventListener('click', event => {
   const row = event.target.closest('tr[data-product-key]');
   if (!row) return;
   state.selectedProductKey = row.dataset.productKey;
+  state.selectedProductCode = row.dataset.productCode || '';
+  state.selectedProductName = row.dataset.productName || '';
   renderTrendTable();
   renderProductAnalysis();
   el('productAnalysis').scrollIntoView({ behavior: 'smooth', block: 'start' });
