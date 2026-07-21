@@ -501,20 +501,23 @@ function normalizeEcommerceRows(parsed, filename) {
         product,
         rawQuantity: originalQuantity,
         quantity: originalQuantity,
+        amountQuantityMultiplier: 1,
+        amountQuantity: originalQuantity,
         quantityMultiplier: 1,
         quantityMultiplierApplied: false
       };
       const multiplierRule = getEcommerceQuantityMultiplierRule(row);
       if (multiplierRule) {
+        row.amountQuantityMultiplier = multiplierRule.multiplier;
+        row.amountQuantity = originalQuantity * multiplierRule.multiplier;
         row.quantityMultiplier = multiplierRule.multiplier;
-        row.quantity = originalQuantity * multiplierRule.multiplier;
         row.quantityMultiplierApplied = true;
         row.quantityMultiplierNote = multiplierRule.note || '';
       }
       const addonRule = getEcommerceAddonRule(row);
       if (addonRule) {
         row.addonUnitPrice = addonRule.unitPrice;
-        row.addonAmount = row.quantity * addonRule.unitPrice;
+        row.addonAmount = row.amountQuantity * addonRule.unitPrice;
         row.isAddonPriced = true;
       } else {
         row.addonUnitPrice = 0;
@@ -748,14 +751,20 @@ function findOnsitePriceReference(row, onsiteProducts = aggregateProducts()) {
   return onsiteProducts.find(p => name && String(p.product || '').trim() === name) || null;
 }
 
+function getEcommerceAmountQuantity(row) {
+  if (!row) return 0;
+  return Number.isFinite(row.amountQuantity) ? row.amountQuantity : ((row.quantity || 0) * (row.amountQuantityMultiplier || 1));
+}
+
 function estimateEcommerceRowAmount(row, date, onsiteProducts = aggregateProducts()) {
   if (!row) return { unitPrice: 0, amount: 0 };
+  const amountQuantity = getEcommerceAmountQuantity(row);
   if (row.isAddonPriced && row.addonUnitPrice > 0) {
-    return { unitPrice: row.addonUnitPrice, amount: row.quantity * row.addonUnitPrice };
+    return { unitPrice: row.addonUnitPrice, amount: amountQuantity * row.addonUnitPrice };
   }
   const reference = findOnsitePriceReference(row, onsiteProducts);
   const unitPrice = reference ? estimateOnsiteUnitPrice(reference, date) : 0;
-  return { unitPrice, amount: (row.quantity || 0) * unitPrice };
+  return { unitPrice, amount: amountQuantity * unitPrice };
 }
 
 function aggregateEcommerceProducts(dates = getEcommerceDates()) {
