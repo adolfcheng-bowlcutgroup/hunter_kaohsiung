@@ -413,15 +413,6 @@
       "quantityMultiplier": 2,
       "amountMode": "priced",
       "quantityMode": "count"
-    },
-    {
-      "rowNo": 43,
-      "productCode": "S260720F9GXT",
-      "product": "【7/23 10:00開放預購】《HUNTER×HUNTER》黃金獵人執照",
-      "unitPrice": 4700,
-      "quantityMultiplier": 1,
-      "amountMode": "priced",
-      "quantityMode": "count"
     }
   ]
 }
