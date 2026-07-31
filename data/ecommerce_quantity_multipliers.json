@@ -1,19 +1,33 @@
 {
-  "description": "電商銷售報表中的特殊金額換算倍率設定。畫面顯示與數量統計仍使用 ecommerce_sales.csv 的原始數值；只有計算電商金額時，指定品項會先乘上 multiplier 再乘以單價。",
+  "description": "電商特殊組數換算設定，作為逐列規則未載入時的備援。指定列每登記 1 組，實際商品件數依 multiplier 換算；金額仍以該列成交組數與其售價規則計算。",
   "items": [
     {
       "rowNo": 19,
       "productCode": "HUKHB02525",
       "product": "獵人貪婪之島-貪婪之島卡片包(5張一包，隨機出貨) ※最低購買量為5包",
       "multiplier": 5,
-      "note": "最低購買量為5包；數量顯示維持報表原值，金額計算時每 1 單位以 5 個 HUKHB02525 計價。"
+      "note": "每登記 1 組代表 5 包。"
     },
     {
-      "rowNo": 44,
+      "rowNo": 42,
       "productCode": "HUKHB02425",
       "product": "【預購】獵人貪婪之島-卡片鑰匙圈(30款隨機出貨)※兩個一組",
       "multiplier": 2,
-      "note": "兩個一組；數量顯示維持報表原值，金額計算時每 1 單位以 2 個 HUKHB02425 計價。"
+      "note": "每登記 1 組代表 2 個。"
+    },
+    {
+      "rowNo": 44,
+      "productCode": "HUKHF00125",
+      "product": "兩個一組-場景立牌(5款隨機出貨)",
+      "multiplier": 2,
+      "note": "每登記 1 組代表 HUKHF00125 2 件。"
+    },
+    {
+      "rowNo": 45,
+      "productCode": "HUKHF00225",
+      "product": "兩個一組-卡片立牌(10款隨機出貨)",
+      "multiplier": 2,
+      "note": "每登記 1 組代表 HUKHF00225 2 件。"
     }
   ]
 }
