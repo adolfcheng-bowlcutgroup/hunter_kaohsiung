@@ -413,6 +413,84 @@
       "quantityMultiplier": 2,
       "amountMode": "priced",
       "quantityMode": "count"
+    },
+    {
+      "rowNo": 43,
+      "productCode": "",
+      "product": "【HUNTER × HUNTER 獵人】獵人貪婪之島-場景立牌(5款隨機出貨)&卡片立牌(10款隨機出貨)※兩個一組",
+      "unitPrice": 0,
+      "quantityMultiplier": 1,
+      "amountMode": "exclude",
+      "quantityMode": "excludeAll",
+      "note": "賣場主名稱列，不代表實際銷售規格；整列排除，避免重複計算。"
+    },
+    {
+      "rowNo": 44,
+      "productCode": "HUKHF00125",
+      "product": "兩個一組-場景立牌(5款隨機出貨)",
+      "unitPrice": 300,
+      "quantityMultiplier": 2,
+      "amountMode": "priced",
+      "quantityMode": "count",
+      "note": "CSV 登記 1 代表 HUKHF00125 售出 2 件，整組含稅售價 300 元。"
+    },
+    {
+      "rowNo": 45,
+      "productCode": "HUKHF00225",
+      "product": "兩個一組-卡片立牌(10款隨機出貨)",
+      "unitPrice": 300,
+      "quantityMultiplier": 2,
+      "amountMode": "priced",
+      "quantityMode": "count",
+      "note": "CSV 登記 1 代表 HUKHF00225 售出 2 件，整組含稅售價 300 元。"
+    },
+    {
+      "rowNo": 46,
+      "productCode": "",
+      "product": "場景立牌+卡片立牌各一(隨機出貨)",
+      "unitPrice": 300,
+      "quantityMultiplier": 1,
+      "amountMode": "priced",
+      "quantityMode": "count",
+      "note": "CSV 登記 1 會拆分為 HUKHF00125 與 HUKHF00225 各 1 件；各分攤 150 元，合計 300 元。",
+      "splitRows": [
+        {
+          "productCode": "HUKHF00125",
+          "product": "獵人貪婪之島-場景立牌(5款隨機出貨)",
+          "unitPrice": 150,
+          "quantityMultiplier": 1,
+          "amountMode": "priced",
+          "quantityMode": "count"
+        },
+        {
+          "productCode": "HUKHF00225",
+          "product": "獵人貪婪之島-卡片立牌(10款隨機出貨)",
+          "unitPrice": 150,
+          "quantityMultiplier": 1,
+          "amountMode": "priced",
+          "quantityMode": "count"
+        }
+      ]
+    },
+    {
+      "rowNo": 47,
+      "productCode": "HUKHF00125",
+      "product": "【HUNTER × HUNTER 獵人】獵人貪婪之島-場景立牌(5款隨機出貨)【加價購】",
+      "unitPrice": 150,
+      "quantityMultiplier": 1,
+      "amountMode": "priced",
+      "quantityMode": "count",
+      "note": "CSV 登記 1 代表 HUKHF00125 售出 1 件，含稅售價 150 元。"
+    },
+    {
+      "rowNo": 48,
+      "productCode": "HUKHF00225",
+      "product": "【HUNTER × HUNTER 獵人】獵人貪婪之島-卡片立牌(10款隨機出貨)【加價購】",
+      "unitPrice": 150,
+      "quantityMultiplier": 1,
+      "amountMode": "priced",
+      "quantityMode": "count",
+      "note": "CSV 登記 1 代表 HUKHF00225 售出 1 件，含稅售價 150 元。"
     }
   ]
 }
