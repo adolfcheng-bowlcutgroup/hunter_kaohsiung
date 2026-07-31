@@ -1,5 +1,5 @@
 {
-  "description": "電商加價購指定含稅單價設定。當 ecommerce_sales.csv 的品項符合 productCode 與 product 時，電商金額會使用 quantity * unitPrice，不再用現場單價回推。",
+  "description": "電商加價購指定含稅單價設定，作為逐列規則未載入時的備援。rowNo、產品代號與商品名稱均與 ecommerce_sales.csv 對齊。",
   "items": [
     {
       "rowNo": 13,
@@ -9,24 +9,38 @@
       "note": "加價購實際含稅單價"
     },
     {
-      "rowNo": 41,
+      "rowNo": 39,
       "productCode": "HUKHB00225",
       "product": "獵人貪婪之島-生命之音刺繡徽章【加價購】",
       "unitPrice": 89,
       "note": "加價購實際含稅單價"
     },
     {
-      "rowNo": 42,
+      "rowNo": 40,
       "productCode": "HUKHB02425",
       "product": "獵人貪婪之島-卡片鑰匙圈(30款隨機出貨)【加價購】",
       "unitPrice": 99,
       "note": "加價購實際含稅單價"
     },
     {
-      "rowNo": 43,
+      "rowNo": 41,
       "productCode": "HUKHB02525",
       "product": "獵人貪婪之島-貪婪之島卡片包(5張一包，隨機出貨)【加價購】",
       "unitPrice": 89,
+      "note": "加價購實際含稅單價"
+    },
+    {
+      "rowNo": 47,
+      "productCode": "HUKHF00125",
+      "product": "【HUNTER × HUNTER 獵人】獵人貪婪之島-場景立牌(5款隨機出貨)【加價購】",
+      "unitPrice": 150,
+      "note": "加價購實際含稅單價"
+    },
+    {
+      "rowNo": 48,
+      "productCode": "HUKHF00225",
+      "product": "【HUNTER × HUNTER 獵人】獵人貪婪之島-卡片立牌(10款隨機出貨)【加價購】",
+      "unitPrice": 150,
       "note": "加價購實際含稅單價"
     }
   ]
